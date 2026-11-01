@@ -221,6 +221,8 @@
     #printSheet.land .pmap { width: 277mm; height: 150mm; }
     @page { margin: 8mm; }
   }
+  .workbtn a { font-size: 18px; line-height: 30px; text-align: center; width: 30px; height: 30px; display: block; text-decoration: none; opacity: .45; }
+  .workbtn a.on { opacity: 1; background: #ffe082; }
   #behList tr[data-act] { cursor: pointer; }
   #behList tr[data-act]:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   #sugBox { position: fixed; z-index: 3000; background: var(--panel); color: var(--ink); border: 1px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px #0006; max-height: 55vh; overflow: auto; }
@@ -3101,6 +3103,7 @@ const FUNCS = [
   { k: 'grain_stock', src: 1, l: 'Getreidelager-Bestand', d: ['admin', 'bl', 'buero', 'berater'] },
   { k: 'docs_read', l: 'Alle Einträge der Schlagkartei einsehen', d: ['admin', 'bl', 'buero', 'berater'] },
   { k: 'orders', l: 'Aufträge schreiben und zuweisen', d: ['admin', 'bl', 'buero'] },
+  { k: 'job_pct', l: 'Erledigte Aufträge nachträglich ändern (Fertig in %)', d: ['admin', 'bl', 'buero'] },
   { k: 'edit', l: 'Arbeiten, Zeiten und Einträge nachträglich korrigieren', d: ['admin', 'bl', 'buero'] },
   { k: 'staff', l: 'Mitarbeiter verwalten (mit Lohn und Stunden)', d: ['admin', 'bl'] },
   { k: 'draw', l: 'Schläge und Zonen auf der Karte anlegen', d: ['admin', 'bl'] },
@@ -3327,6 +3330,7 @@ function buildLayerControl() {
   (db.mapLayers || []).forEach(m => { const l = wmsMk(m.url, m.layers, { attribution: m.name }); customLayers.push(l); ov[m.name] = l; });
   layerCtl = L.control.layers(BASES, ov, { position: 'topright' }).addTo(map);
   placePrintBtn();
+  try { placeWorkBtn(); } catch (e) { /* noch nicht bereit */ }
 }
 let printCtl = null, locCtl = null;
 function placePrintBtn() {
@@ -3617,7 +3621,39 @@ map.on(L.Draw.Event.EDITED, e => {
   save(); render();
   if (msgs.length) toast('Gespeichert. ' + msgs.join(' · '));
 });
-const cutStyle = (hl, sel) => ({ color: hl ? '#ffeb3b' : '#e53935', weight: hl ? 4 : 2, dashArray: hl ? null : '4 3', fillColor: hl ? '#ffeb3b' : '#e53935', fillOpacity: hl ? 0.55 : sel ? 0.3 : 0.2 });
+const cutStyle = (hl, sel, col) => ({ color: hl ? '#ffeb3b' : (col || '#4caf50'), weight: hl ? 4 : 2, fillColor: hl ? '#ffeb3b' : '#000', fillOpacity: hl ? 0.55 : sel ? 0.3 : 0.22 });
+const workLayer = L.layerGroup().addTo(map);
+let workCtl = null, workLines = [];
+function workWeight(w, lat) { const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom()); return Math.max(2, Math.min(70, w / mpp)); }
+function refreshWork() {
+  workLayer.clearLayers(); workLines = [];
+  const f = fieldById(selectedId), ok = !!(f && halfDone(f));
+  if (workCtl && workCtl.getContainer()) workCtl.getContainer().style.display = ok ? '' : 'none';
+  if (workCtl && workCtl.getContainer()) { const b = workCtl.getContainer().querySelector('a'); if (b) b.classList.toggle('on', ui.showWork !== false); }
+  if (!ok || ui.showWork === false) return;
+  const rest = db.jobs.find(x => x.fieldId === f.id && x.status !== 'erledigt' && x.donePct > 0);
+  db.jobs.filter(j => j.fieldId === f.id && j.startedAt && (!rest || j.title === rest.title)).forEach(j => {
+    const sh = db.shifts.find(x => x.userId === j.userId && x.start <= j.startedAt + 60000 && (x.end || Infinity) >= j.startedAt), tr = sh && db.tracks[sh.id]; if (!tr) return;
+    const to = j.endedAt || Date.now(), m = mById(j.implId) || mById(j.tractorId), w = (m && m.width > 0) ? m.width : 3;
+    let run = [];
+    const flush = () => { if (run.length > 1) { const pl = L.polyline(run, { color: '#ff8f00', weight: workWeight(w, run[0][0]), opacity: 0.55, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(workLayer); workLines.push({ pl, w, lat: run[0][0] }); } run = []; };
+    tr.forEach(r => { const t = sh.start + r[0] * 1000; if (t < j.startedAt || t > to) return; const lat = r[1] / 1e5, lng = r[2] / 1e5; if (inPoly(lat, lng, f.coords) && !(f.holes || []).some(h => inPoly(lat, lng, h))) run.push([lat, lng]); else flush(); });
+    flush();
+  });
+}
+map.on('zoomend', () => { workLines.forEach(o => o.pl.setStyle({ weight: workWeight(o.w, o.lat) })); });
+function placeWorkBtn() {
+  try { if (workCtl) workCtl.remove(); } catch (e) { /* egal */ }
+  document.querySelectorAll('.workbtn').forEach(e => e.remove());
+  const C = L.Control.extend({ options: { position: 'topright' }, onAdd() {
+    const d = L.DomUtil.create('div', 'leaflet-bar workbtn'), a = L.DomUtil.create('a', '', d);
+    a.href = '#'; a.title = 'Bearbeitete Fläche (GPS-Spur) im Schlag ein- oder ausblenden'; a.setAttribute('role', 'button'); a.innerHTML = '🚜';
+    L.DomEvent.disableClickPropagation(d); L.DomEvent.on(a, 'click', ev => { L.DomEvent.preventDefault(ev); ui.showWork = ui.showWork === false; refreshWork(); });
+    return d;
+  } });
+  workCtl = new C().addTo(map); try { refreshWork(); } catch (e) { /* noch nicht bereit */ }
+}
+placeWorkBtn();
 function drawAll() {
   group.clearLayers(); editGroup.clearLayers(); selVerts.clear();
   let chg = false; db.fields.forEach(f => { if (ensureHoleCuts(f)) chg = true; }); if (chg) save();
@@ -3640,7 +3676,7 @@ function drawAll() {
     (f.cuts || []).forEach(c => {
       if (!c.ring || c.ring.length < 3) return;
       const hl = c.id === selCut, edt = sel && canW('draw');
-      const st = cutStyle(hl, sel);
+      const st = cutStyle(hl, sel, halfDone(f) ? '#e6c200' : colorOfCrop(f.crop));
       const cp = c.circle ? L.circle([c.circle.lat, c.circle.lng], Object.assign({ radius: c.circle.r }, st)) : L.polygon(c.ring, st);
       cp.kind = 'cut'; cp.rid = f.id; cp.cid = c.id;
       cp.bindTooltip('Aussparung ' + esc(c.name) + ': −' + fmtArea(c.ha) + (c.circle ? ' (Kreis)' : ''), { sticky: true });
@@ -3649,6 +3685,7 @@ function drawAll() {
       (edt ? editGroup : group).addLayer(cp);
     });
   });
+  refreshWork();
 }
 
 /* =====================================================================
@@ -4204,7 +4241,7 @@ VIEWS.auftraege = function () {
       if (own && j.status === 'offen') act = '<button class="small primary" data-act="jobStart" data-id="' + j.id + '">Starten</button> ';
       if (own && j.status === 'läuft') act = '<button class="small" data-act="jobPause" data-id="' + j.id + '">⏸ Pause</button> <button class="small primary" data-act="jobFinish" data-id="' + j.id + '">Fertig</button> ';
       if (j.fieldId && j.status !== 'erledigt') act += fieldLinks(fieldById(j.fieldId)) + ' ';
-      if (canW('edit') || (mgr && j.status === 'offen')) act += '<button class="small" data-act="jobEdit" data-id="' + j.id + '" aria-label="Auftrag bearbeiten">Bearbeiten</button>';
+      if (canW('edit') || can('job_pct') && !ro() || (mgr && j.status === 'offen')) act += '<button class="small" data-act="jobEdit" data-id="' + j.id + '" aria-label="Auftrag bearbeiten">Bearbeiten</button>';
       return '<tr><td>' + dateDE(j.date) + '</td><td><b>' + esc(j.title) + '</b>' + (j.itemId && jobItem(j) ? '<div class="sub">' + esc(jobSub(j).split(' · ').filter(x => x.indexOf(esc(jobItem(j).name)) === 0).join('')) + '</div>' : '') + (j.note ? '<div class="sub">' + esc(j.note) + '</div>' : '') + (j.editedAt ? ' <span class="tag Manuell">korrigiert</span>' : '') + '</td><td>' + (j.fieldId ? esc(fName(j.fieldId)) : '–') + '</td><td>' + esc(uName(j.userId)) + '</td><td>' + esc([j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ') || '–') + '</td><td><span class="tag ' + stCls(j.status) + '">' + JS_L(j.status) + '</span></td><td class="num">' + jobDur(j) + '</td><td>' + act + '</td></tr>';
     }).join('') + '</tbody></table></div>';
   }
@@ -5091,32 +5128,48 @@ function evalData(yr) {
   try { dieselByField(yr).rows.forEach(d => { if (d.fieldId && rows[d.fieldId]) rows[d.fieldId].diesel += d.cost || 0; }); } catch (e) { /* ohne Diesel */ }
   return { rows: Object.keys(rows).map(k => rows[k]), miss };
 }
-const EV_COLS = [['h', 'Std.', 1], ['work', 'Arbeit', 0], ['mach', 'Maschinen', 0], ['diesel', 'Diesel', 0], ['ps', 'Pflanzenschutz', 0], ['du', 'Dünger', 0], ['seed', 'Saatgut', 0]];
-const evSum = r => r.work + r.mach + r.diesel + r.ps + r.du + r.seed;
+const EV_ALL = [['ha', 'Fläche ha', 'n1'], ['h', 'Stunden', 'n1'], ['work', 'Arbeit', 'c'], ['mach', 'Maschinen', 'c'], ['diesel', 'Diesel', 'c'], ['ps', 'Pflanzenschutz', 'c'], ['du', 'Dünger', 'c'], ['seed', 'Saatgut', 'c'], ['sum', 'Summe', 'c'], ['perha', 'pro ha', 'c']];
+const evOn = k => !ui.evCols || ui.evCols[k] !== false;
+const evCost = ['work', 'mach', 'diesel', 'ps', 'du', 'seed'];
+const evSumOf = r => evCost.filter(evOn).reduce((a, k) => a + r[k], 0);
 function evalTable() {
   const yr = ui.evYear || String(new Date().getFullYear()), by = ui.evBy || 'schlag';
   const d = evalData(yr), cv = v => conv(v, baseCur(), dispCur());
-  let list = d.rows.filter(r => evSum(r) > 0 || r.h > 0);
+  const selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
+  let list = d.rows.filter(r => (evSumOf(r) > 0 || r.h > 0 || evCost.some(k => r[k] > 0)) && (!any || selC[cropKey(r.f)] || selF[r.f.id]));
   if (by === 'frucht') {
-    const g = {}; list.forEach(r => { const k = cropKey(r.f) || '(ohne Frucht)'; const o = g[k] = g[k] || { name: k, crop: '', ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, n: 0 }; o.n++; o.ha += r.ha; EV_COLS.forEach(c => { o[c[0]] += r[c[0]]; }); });
+    const g = {}; list.forEach(r => { const k = cropKey(r.f) || '(ohne Frucht)'; const o = g[k] = g[k] || { name: k, crop: '', ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, n: 0 }; o.n++; o.ha += r.ha; ['h'].concat(evCost).forEach(c => { o[c] += r[c]; }); });
     list = Object.keys(g).sort((a, b) => a.localeCompare(b, 'de')).map(k => g[k]);
   } else list = list.map(r => Object.assign({ name: dn(r.f), crop: r.f.crop || '', n: 1 }, r)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de', { numeric: true }));
   const tot = { ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0 }; list.forEach(r => { Object.keys(tot).forEach(k => { tot[k] += r[k]; }); });
   return { yr, by, list, tot, cv, miss: d.miss };
 }
+function evVal(r, k, cv) {
+  if (k === 'ha' || k === 'h') return r[k];
+  if (k === 'sum') return cv(evSumOf(r));
+  if (k === 'perha') return r.ha > 0 ? cv(evSumOf(r)) / r.ha : null;
+  return cv(r[k]);
+}
+const evCols = () => EV_ALL.filter(c => evOn(c[0]) && !((c[0] === 'sum' || c[0] === 'perha') && !evCost.some(evOn)));
 VIEWS.auswertung = function () {
   const years = {}; years[String(new Date().getFullYear())] = 1; db.jobs.forEach(j => { if (j.startedAt) years[dstr(j.startedAt).slice(0, 4)] = 1; }); db.entries.forEach(e => { years[String(e.date).slice(0, 4)] = 1; });
-  const yr = ui.evYear || String(new Date().getFullYear()), t = evalTable(), cv = t.cv, sym = curSym(dispCur());
+  const yr = ui.evYear || String(new Date().getFullYear()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols();
+  const selC = ui.evCrops || {}, selF = ui.evFlds || {};
   let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Auswertung: Kosten pro ' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</h2><div class="tools noprint"><button class="small" data-act="evCsv">Excel (CSV)</button><button class="small" data-act="evPrint">PDF / Drucken</button></div></div>';
   h += curTools();
   h += '<div class="filter noprint"><label>Jahr<select data-ui="evYear">' + Object.keys(years).sort().reverse().map(y => '<option' + (y === yr ? ' selected' : '') + '>' + y + '</option>').join('') + '</select></label><label>Gruppieren nach<select data-ui="evBy"><option value="schlag"' + (t.by === 'schlag' ? ' selected' : '') + '>Schlag</option><option value="frucht"' + (t.by === 'frucht' ? ' selected' : '') + '>Frucht</option></select></label></div>';
-  h += '<p class="hint">So wird gerechnet: <b>Arbeit</b> = Stunden der erledigten Aufträge × Stundenlohn des Mitarbeiters. <b>Maschinen</b> = Einsatzstunden × Stundensatz (AfA + Reparaturen + Versicherung des Jahres geteilt durch die Einsatzstunden). <b>Diesel</b> aus den Tankungen. <b>Pflanzenschutz, Dünger</b> = gespeicherte Menge × Preis am Tag der Behandlung. <b>Saatgut</b> = Saatmenge × Fläche × Preis aus Grunddaten (Gruppe Saatgut). Beträge in ' + sym + '.</p>';
-  if (!t.list.length) return h + '<p class="empty">Für ' + yr + ' gibt es noch keine Daten zum Auswerten. Es zählen erledigte Aufträge mit Schlag sowie Behandlungen und Düngungen.</p></section></div>';
-  const f0 = v => fmt(cv(v), 0), cell = (r, c) => '<td class="num">' + (c[2] ? fmt(r[c[0]], 1) : f0(r[c[0]])) + '</td>';
-  h += '<div class="tablewrap"><table><thead><tr><th>' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</th><th class="num">ha</th>' + EV_COLS.map(c => '<th class="num">' + c[1] + '</th>').join('') + '<th class="num">Summe</th><th class="num">' + sym + ' pro ha</th></tr></thead><tbody>';
-  t.list.forEach(r => { const sm = evSum(r); h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td><td class="num">' + fmt(r.ha, 1) + '</td>' + EV_COLS.map(c => cell(r, c)).join('') + '<td class="num"><b>' + f0(sm) + '</b></td><td class="num">' + (r.ha > 0 ? fmt(cv(sm) / r.ha, 0) : '–') + '</td></tr>'; });
-  const ts = evSum(t.tot);
-  h += '<tr class="sum"><td><b>Gesamt</b></td><td class="num">' + fmt(t.tot.ha, 1) + '</td>' + EV_COLS.map(c => cell(t.tot, c)).join('') + '<td class="num"><b>' + f0(ts) + '</b></td><td class="num">' + (t.tot.ha > 0 ? fmt(cv(ts) / t.tot.ha, 0) : '–') + '</td></tr></tbody></table></div>';
+  const crops = {}; db.fields.forEach(f => { crops[cropKey(f) || '(ohne Frucht)'] = 1; });
+  h += '<details class="fold noprint" data-uidetails="evsel"' + ((ui.det && ui.det.evsel) ? ' open' : '') + '><summary><h2>Auswahl: Früchte, Schläge, Angaben</h2></summary><div class="foldtools">';
+  h += '<p class="hint">Früchte antippen, um nur diese zu zeigen (nichts gewählt = alle). Darunter einzelne Schläge dazuwählen. Bei „Angaben“ stellst du die Spalten zusammen.</p>';
+  h += '<div class="cropchips"><button type="button" data-act="evClear">Alle Früchte und Schläge</button>' + Object.keys(crops).sort((a, b) => a.localeCompare(b, 'de')).map(k => '<button type="button" class="' + (selC[k] ? 'on' : '') + '" data-act="evCrop" data-k="' + esc(k) + '">' + esc(k) + '</button>').join('') + '</div>';
+  h += '<div class="multilist" style="max-height:200px;overflow:auto;margin:8px 0">' + sortedFields(true).map(f => '<label class="chk"><input type="checkbox" data-evf="' + f.id + '"' + (selF[f.id] ? ' checked' : '') + '> ' + esc(dn(f)) + ' <span class="sub">' + (f.crop ? esc(f.crop) + ' · ' : '') + fmt(f.ha, 1) + ' ha</span></label>').join('') + '</div>';
+  h += '<div class="tools" style="flex-wrap:wrap">' + EV_ALL.map(c => '<label class="chk"><input type="checkbox" data-evc="' + c[0] + '"' + (evOn(c[0]) ? ' checked' : '') + '> ' + c[1] + '</label>').join(' ') + '</div></div></details>';
+  h += '<p class="hint">So wird gerechnet: <b>Arbeit</b> = Stunden der erledigten Aufträge × Stundenlohn. <b>Maschinen</b> = Einsatzstunden × Stundensatz (AfA + Reparaturen + Versicherung des Jahres geteilt durch die Einsatzstunden). <b>Diesel</b> aus den Tankungen. <b>Pflanzenschutz, Dünger</b> = Menge × Preis am Tag der Behandlung. <b>Saatgut</b> = Saatmenge × Fläche × Preis (Grunddaten, Gruppe Saatgut). <b>Summe</b> zählt nur die angehakten Kostenspalten. Beträge in ' + sym + '.</p>';
+  if (!t.list.length) return h + '<p class="empty">Für diese Auswahl gibt es keine Daten. Es zählen erledigte Aufträge mit Schlag sowie Behandlungen und Düngungen im gewählten Jahr.</p></section></div>';
+  const fm = (r, c) => { const v = evVal(r, c[0], cv); return v == null ? '–' : fmt(v, c[2] === 'n1' ? 1 : 0); };
+  h += '<div class="tablewrap"><table><thead><tr><th>' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</th>' + cols.map(c => '<th class="num">' + (c[0] === 'perha' ? sym + ' pro ha' : c[1]) + '</th>').join('') + '</tr></thead><tbody>';
+  t.list.forEach(r => { h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td>' + cols.map(c => '<td class="num">' + (c[0] === 'sum' ? '<b>' + fm(r, c) + '</b>' : fm(r, c)) + '</td>').join('') + '</tr>'; });
+  h += '<tr class="sum"><td><b>Gesamt</b></td>' + cols.map(c => '<td class="num"><b>' + fm(t.tot, c) + '</b></td>').join('') + '</tr></tbody></table></div>';
   if (t.miss.wage || t.miss.price) h += '<p class="hint">Hinweis: ' + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0.' : '') + '</p>';
   return h + '</section></div>';
 };
@@ -5221,6 +5274,7 @@ function select(id, zoom) {
   const f = fieldById(id);
   if (f && zoom !== false) map.fitBounds(L.polygon(f.coords).getBounds(), { maxZoom: 17, padding: [30, 30] });
   render();
+  refreshWork();
 }
 function allowedTypes() {
   const t = [];
@@ -5453,7 +5507,7 @@ function limitApply(sc, clamp) {
   r.hint.textContent = 'Höchstmenge laut Register: ' + lim.src + (totTxt || (ha > 0 ? ' · Gesamtmenge höchstens: ' + fmt(lim.max * ha, 3) + ' ' + un + ' bei ' + fmt(ha, 2) + ' ha' : ''));
   if (v > lim.max + 1e-9) {
     r.amt.classList.add('over');
-    if (clamp) { r.amt.value = String(lim.max); r.hint.classList.add('bad'); r.amt.classList.remove('over'); r.hint.textContent = 'Mehr als erlaubt: auf die Höchstmenge ' + fmt(lim.max, 3) + ' ' + un + '/ha begrenzt (' + lim.src + ')' + (ha > 0 ? tot(lim.max) : '') + '.'; return true; }
+    if (clamp) { r.amt.value = String(lim.max); toast('Höchstmenge laut Register: ' + fmt(lim.max, 3) + ' ' + un + '/ha. Die Menge wurde darauf begrenzt.'); r.hint.classList.add('bad'); r.amt.classList.remove('over'); r.hint.textContent = 'Mehr als erlaubt: auf die Höchstmenge ' + fmt(lim.max, 3) + ' ' + un + '/ha begrenzt (' + lim.src + ')' + (ha > 0 ? tot(lim.max) : '') + '.'; return true; }
     r.hint.classList.add('bad'); r.hint.textContent = 'Zu viel: erlaubt sind höchstens ' + fmt(lim.max, 3) + ' ' + un + '/ha (' + lim.src + ')' + totTxt + '.'; return false;
   }
   return true;
@@ -5511,6 +5565,7 @@ $('entryForm').addEventListener('submit', e => {
     if ((bad = rows.find(r => !r.g))) { toast('Bitte einen Spritzgrund wählen' + tag(bad) + '.'); return; }
     if ((bad = rows.find(r => !(r.a >= MIN_AMT)))) { toast('Bitte eine Menge größer 0 eintragen' + tag(bad) + '.'); return; }
     if ((bad = rows.find(r => !r.u))) { toast('Bitte eine Einheit wählen' + tag(bad) + '.'); return; }
+    if (!REG && regState !== 'err') { ensureReg(); toast('Die Zulassungsliste lädt noch, bitte gleich nochmal speichern.'); return; }
     if (!limitAll(false)) { toast('Menge über der erlaubten Höchstmenge – bitte korrigieren.'); return; }
   }
   if (ui.behEdit) { const old = ui.behEdit.ids; db.entries = db.entries.filter(x => old.indexOf(x.id) < 0); ui.behEdit = null; $('behEditBar').hidden = true; }
@@ -5669,11 +5724,13 @@ const A = {};
 A.zTrack = d => { ui.zShift = d.id; render(); const c = $('zMapCard'); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth' }); };
 A.tab = d => { if (d.tab === 'maschinen' && ui.tab === 'maschinen') ui.machId = ''; ui.tab = d.tab; if (d.tab === 'kartei' && !selectedId) ui.zoomMe = true; render(); };
 A.evCsv = () => {
-  const t = evalTable(), cv = t.cv, rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht', 'ha'].concat(EV_COLS.map(c => c[1])).concat(['Summe', 'pro ha', 'Währung'])];
-  const line = r => [r.name, r.crop || '', dnum(r.ha)].concat(EV_COLS.map(c => dnum(c[2] ? r[c[0]] : cv(r[c[0]])))).concat([dnum(cv(evSum(r))), r.ha > 0 ? dnum(cv(evSum(r)) / r.ha) : '', curSym(dispCur())]);
+  const t = evalTable(), cv = t.cv, cols = evCols(), rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht'].concat(cols.map(c => c[1])).concat(['Währung'])];
+  const line = r => [r.name, r.crop || ''].concat(cols.map(c => { const v = evVal(r, c[0], cv); return v == null ? '' : dnum(v); })).concat([curSym(dispCur())]);
   t.list.forEach(r => rows.push(line(r))); rows.push(line(Object.assign({ name: 'Gesamt', crop: '' }, t.tot)));
   csvDownload('auswertung-' + t.yr + '.csv', rows);
 };
+A.evCrop = d => { ui.evCrops = ui.evCrops || {}; if (ui.evCrops[d.k]) delete ui.evCrops[d.k]; else ui.evCrops[d.k] = true; render(); };
+A.evClear = () => { ui.evCrops = {}; ui.evFlds = {}; render(); };
 A.evPrint = () => { document.body.classList.add('evprint'); setTimeout(() => { window.print(); setTimeout(() => document.body.classList.remove('evprint'), 500); }, 100); };
 A.dataBackup = () => {
   if (me().role !== 'admin') return;
@@ -5714,6 +5771,7 @@ A.behEdit = d => {
   });
   $('enNote').value = e.uNote != null ? e.uNote : (e.note || '');
   limitAll(false);
+  if (isPS() && !REG) { ensureReg(); const tm = setInterval(() => { if (REG) { clearInterval(tm); reasonRefreshAll(); limitAll(false); } else if (regState === 'err') clearInterval(tm); }, 300); }
   $('behEditTxt').textContent = 'Du bearbeitest einen gespeicherten Eintrag (' + dateDE(e.date) + ', ' + Object.keys(haBy).length + (Object.keys(haBy).length === 1 ? ' Schlag' : ' Schläge') + '). „Eintrag speichern“ ersetzt ihn.';
   $('behEditBar').hidden = false;
   const bx = $('entryBox'); if (bx && bx.scrollIntoView) bx.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5781,7 +5839,7 @@ function jobFinishDialog(id, pause) {
     if (f) j.donePct = partial ? pct : 100;
     if (partial) {
       const rest = JSON.parse(JSON.stringify(j));
-      Object.assign(rest, { id: newId(), status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (v.note.trim() || '')).trim() });
+      Object.assign(rest, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (v.note.trim() || '')).trim() });
       delete rest.derived; db.jobs.push(rest);
     }
     deriveJob(j); toast(partial ? 'Pause gespeichert: ' + fmt(pct, 0) + ' % fertig, der Rest bleibt als offener Auftrag.' : 'Arbeit gespeichert.');
@@ -5817,7 +5875,8 @@ A.jobSelf = () => {
   }, { onChange: mittelChange });
 };
 A.jobEdit = d => {
-  const j = jobById(d.id); if (!j || !(canW('edit') || canW('orders'))) return;
+  const j = jobById(d.id); if (!j || !(canW('edit') || canW('orders') || (can('job_pct') && !ro()))) return;
+  const pctOk = can('job_pct') && !ro() && !!j.fieldId && !!fieldById(j.fieldId);
   dialog('Auftrag bearbeiten', [
     { k: 'title', label: 'Arbeit', req: true, v: j.title, list: 'titleSuggest' },
     { k: 'field', label: 'Schlag', type: 'select', opts: fieldOpts(), v: j.fieldId || '' },
@@ -5829,7 +5888,8 @@ A.jobEdit = d => {
     { k: 'status', label: 'Status', type: 'select', opts: [{ v: 'offen', l: 'Offen' }, { v: 'läuft', l: 'Läuft' }, { v: 'erledigt', l: 'Erledigt' }], v: j.status },
     { k: 'start', label: 'Beginn', type: 'datetime-local', v: dtl(j.startedAt) },
     { k: 'end', label: 'Ende', type: 'datetime-local', v: dtl(j.endedAt) },
-    { k: 'ha', label: 'Bearbeitete Fläche in ha', type: 'number', step: 'any', min: 0, v: j.ha == null ? '' : j.ha },
+    { k: 'ha', label: 'Bearbeitete Fläche in ha', type: 'number', step: 'any', min: 0, v: j.ha == null ? '' : j.ha }
+  ]).concat(pctOk ? [{ k: 'pct', label: 'Wie viel Prozent des Schlags sind insgesamt fertig?', type: 'number', step: 'any', min: 0, v: j.donePct > 0 ? j.donePct : 100, hint: 'Unter 100 % bleibt ein Rest-Auftrag offen und der Schlag wird gelb markiert. Bei 100 % gilt er als ganz erledigt.' }] : []).concat([
     { k: 'note', label: 'Notiz', type: 'textarea', v: j.note || '' }
   ]), v => {
     let st = fromLocal(v.start), en = fromLocal(v.end);
@@ -5840,7 +5900,21 @@ A.jobEdit = d => {
     if (v.status === 'läuft' && db.jobs.some(x => x.id !== j.id && x.userId === v.user && x.status === 'läuft')) return 'Dieser Mitarbeiter hat schon eine laufende Arbeit.';
     Object.assign(j, { title: v.title.trim(), fieldId: v.field || null, userId: v.user, date: v.date, tractorId: v.tractor || null, implId: v.impl || null, status: v.status, startedAt: st, endedAt: en, ha: num(v.ha), note: v.note.trim(), editedBy: me().id, editedAt: Date.now() });
     if ('item' in v) { j.itemId = v.item || null; j.dose = num(v.dose); j.mix = mixFromVals(v); }
-    deriveJob(j); toast('Auftrag gespeichert.');
+    let ptxt = '';
+    if (pctOk && 'pct' in v) {
+      let pct = num(v.pct); if (pct == null) pct = 100; pct = Math.max(0, Math.min(100, pct));
+      const rest = db.jobs.find(x => x.restOf === j.id), restOpen = rest && rest.status === 'offen';
+      if (pct < 99.5 && j.status === 'erledigt') {
+        j.donePct = pct;
+        if (restOpen) { rest.donePct = pct; rest.note = ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (j.note || '')).trim(); }
+        else if (!rest) { const nr = JSON.parse(JSON.stringify(j)); Object.assign(nr, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (j.note || '')).trim() }); delete nr.derived; db.jobs.push(nr); }
+        else ptxt = ' Der Rest-Auftrag wurde schon bearbeitet und bleibt unverändert.';
+      } else {
+        j.donePct = 100;
+        if (restOpen) db.jobs = db.jobs.filter(x => x !== rest); else if (rest) ptxt = ' Der Rest-Auftrag wurde schon bearbeitet und bleibt unverändert.';
+      }
+    }
+    deriveJob(j); toast('Auftrag gespeichert.' + ptxt);
   }, { onChange: mittelChange, onDelete: canW('edit') ? () => { purgeJob(j); db.jobs = db.jobs.filter(x => x.id !== j.id); } : null });
 };
 
@@ -6252,7 +6326,7 @@ const editActive = () => !!(drawCtl._toolbars && drawCtl._toolbars.edit && drawC
 function clearVertSel() { selVerts.forEach(v => { try { v.m._icon.classList.remove('vsel'); } catch (e) { /* weg */ } }); selVerts.clear(); }
 function restyleCuts() {
   if (editActive()) return;
-  [group, editGroup].forEach(g => g.eachLayer(l => { if (l.kind === 'cut' && l.setStyle) l.setStyle(cutStyle(l.cid === selCut, l.rid === selectedId)); }));
+  [group, editGroup].forEach(g => g.eachLayer(l => { if (l.kind === 'cut' && l.setStyle) { const ff = fieldById(l.rid); l.setStyle(cutStyle(l.cid === selCut, l.rid === selectedId, ff ? (halfDone(ff) ? '#e6c200' : colorOfCrop(ff.crop)) : null)); } }));
 }
 map.on('click', e => {
   if (mdown && e.originalEvent && Math.hypot(e.originalEvent.clientX - mdown.x, e.originalEvent.clientY - mdown.y) > 5) return;
@@ -6516,6 +6590,8 @@ document.addEventListener('change', e => {
   if (el.dataset && el.dataset.cur) { if (me().role === 'admin') { db.currency = el.value.trim() || '€'; save(); setTimeout(render, 0); } return; }
   if (el.dataset && el.dataset.vis !== undefined) { const k = el.dataset.vis, i = db.hiddenCrops.indexOf(k); if (el.checked && i >= 0) db.hiddenCrops.splice(i, 1); if (!el.checked && i < 0) db.hiddenCrops.push(k); save(); drawAll(); render(); return; }
   if (el.dataset && el.dataset.ccrop) { if (canW('crop') || canW('draw')) { db.cropColors[el.dataset.ccrop] = el.value; save(); render(); } return; }
+  if (el.dataset && el.dataset.evf) { ui.evFlds = ui.evFlds || {}; if (el.checked) ui.evFlds[el.dataset.evf] = true; else delete ui.evFlds[el.dataset.evf]; render(); return; }
+  if (el.dataset && el.dataset.evc) { ui.evCols = ui.evCols || {}; ui.evCols[el.dataset.evc] = el.checked; render(); return; }
   if (el.dataset && el.dataset.ui) { ui[el.dataset.ui] = el.value; render(); return; }
   if (el.dataset && el.dataset.perm) {
     if (me().role !== 'admin') return;

@@ -5376,9 +5376,9 @@ VIEWS.daten = function () {
 VIEWS.einst = function () {
   const w = canW('crop') || canW('draw');
   let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p></section>';
-  h += '<section class="card"><h2>Grundeinstellungen (Vorauswahl)</h2><p class="hint">Diese Werte stehen in den Auswahlfeldern immer zuerst. Du kannst sie im einzelnen Formular jederzeit ändern.</p>' +
-    [['duUnit', 'Einheit für neue Dünger', ['kg', 't', 'dt']], ['psUnit', 'Einheit für neue Pflanzenschutzmittel', ['l', 'kg', 'g', 't', 'dt']]].map(r => '<label class="prefrow">' + r[1] + '<select data-pref="' + r[0] + '"' + (w ? '' : ' disabled') + '>' + r[2].map(u => '<option value="' + u + '"' + (prefUnit(r[0] === 'duUnit' ? 'du' : 'ps') === u ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></label>').join('') +
-    '<h3 style="margin:10px 0 4px">Einheit für neues Saatgut je Frucht</h3>' + SEED_CROPS.map(c => '<label class="prefrow">' + esc(c) + '<select data-prefseed="' + esc(c) + '"' + (w ? '' : ' disabled') + '>' + SEED_UNITS.map(u => '<option value="' + u.v + '"' + (prefUnit('sa', c) === u.v ? ' selected' : '') + '>' + u.l + '</option>').join('') + '</select></label>').join('') + '</section>';
+  h += '<section class="card"><div class="cardhead"><h2>Grundeinstellungen (Vorauswahl)</h2></div><p class="hint">Diese Werte stehen in den Auswahlfeldern immer zuerst. Du kannst sie im einzelnen Formular jederzeit ändern.</p>' +
+    [['duUnit', 'Einheit für neue Dünger', ['kg', 't', 'dt']], ['psUnit', 'Einheit für neue Pflanzenschutzmittel', ['l', 'kg', 'g', 't', 'dt']]].map(r => '<label class="prefrow">' + r[1] + '<select data-pref="' + r[0] + '"' + (w ? '' : ' disabled') + '>' + r[2].map(u => '<option value="' + u + '"' + (prefUnit(r[0] === 'duUnit' ? 'du' : 'ps') === u ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></label>').join('') + '</section>' +
+    '<section class="card"><div class="cardhead"><h2>Einheit für neues Saatgut je Frucht</h2></div>' + SEED_CROPS.map(c => '<label class="prefrow">' + esc(c) + '<select data-prefseed="' + esc(c) + '"' + (w ? '' : ' disabled') + '>' + SEED_UNITS.map(u => '<option value="' + u.v + '"' + (prefUnit('sa', c) === u.v ? ' selected' : '') + '>' + u.l + '</option>').join('') + '</select></label>').join('') + '</section>';
   h += '<section class="card"><div class="cardhead"><h2>Farben der Früchte</h2>' + (w ? '<button class="small" data-act="colorReset">Standardfarben</button>' : '') + '</div>' + Object.keys(DEF_COLORS).map(c => '<div class="crow"><span><span class="cdot" style="background:' + colorOfCrop(c) + '"></span>' + esc(c) + '</span><input type="color" data-ccrop="' + c + '" value="' + colorOfCrop(c) + '"' + (w ? '' : ' disabled') + '></div>').join('') + '<p class="hint">Felder werden auf der Karte nach ihrer Frucht eingefärbt. Sommergerste hat Vorrang vor Gerste.</p></section>';
   h += '<section class="card"><div class="cardhead"><h2>Eigene Kartenebenen (WMS)</h2>' + (w ? '<button class="small primary" data-act="mapAdd">Ebene hinzufügen</button>' : '') + '</div><p class="hint">Auf der Karte oben rechts wählbar: Satellit, Straße, Höhenlinien, Kataster (ČÚZK) und LPIS (eAGRI) sind schon dabei. Hier kannst du weitere WMS-Dienste ergänzen, z. B. die Erosionsgefährdung aus dem LPIS. Du brauchst die WMS-Adresse und den Ebenennamen aus dem Dienst (GetCapabilities).</p>' + db.mapLayers.map((m, i) => '<div class="crow"><span>' + esc(m.name) + ' <span class="sub">' + esc(m.layers) + '</span></span>' + (w ? '<button class="small danger" data-act="mapDel" data-i="' + i + '">✕</button>' : '') + '</div>').join('') + '</section>';
   [['tillage', 'Bodenbearbeitung (Vorauswahl)'], ['drill', 'Drillkombinationen (Vorauswahl)'], ['duCats', 'Düngerarten / Gruppen (Vorauswahl für Lager und Grunddaten)']].forEach(l => {
@@ -6397,7 +6397,9 @@ const SEED_CEREAL = ['Weizen', 'Gerste', 'Sommergerste', 'Roggen', 'Triticale', 
 const prefCur = () => dispCur();
 const prefUnit = (kind, cat) => kind === 'sa' ? ((db.prefs.seedUnit || {})[cat] || 'dt') : kind === 'du' ? (db.prefs.duUnit || 't') : kind === 'ps' ? (db.prefs.psUnit || 'l') : null;
 const kgPerEinheit = i => (i.kgPer > 0 ? i.kgPer : (i.korn > 0 && i.tkg > 0 ? i.korn * i.tkg : 0));
-const beizOpts = () => [{ v: '', l: '– keine Beizung –' }].concat(db.items.filter(i => i.kind === 'ps' && i.cat === 'Beizmittel').sort((a, b) => a.name.localeCompare(b.name, 'de')).map(i => ({ v: i.id, l: i.name + ' (' + i.unit + ')' })));
+const BEIZ_MAX = 8;
+const isBeiz = i => i.cat === 'Beizmittel' || (REG && (regFind(i.name) || {}).f === 'Mořidlo');
+const beizOpts = () => { const ps = db.items.filter(i => i.kind === 'ps').sort((a, b) => a.name.localeCompare(b.name, 'de')), bz = ps.filter(isBeiz), rest = ps.filter(i => !isBeiz(i)); return [{ v: '', l: '– Mittel wählen –' }].concat(bz.map(i => ({ v: i.id, l: i.name + ' (' + i.unit + ')', g: 'Zugelassene Beizmittel' }))).concat(rest.map(i => ({ v: i.id, l: i.name + ' (' + i.unit + ')', g: 'Weitere Mittel aus dem Lager' }))); };
 function grainPricePerT(crop) {
   const nm = crop === 'Sommergerste' ? 'Gerste' : crop;
   const g = db.gd.find(x => x.group === 'Getreide / Verkauf' && norm(x.name) === norm(nm));
@@ -6407,16 +6409,16 @@ function grainPricePerT(crop) {
 function seedCalc(v) {
   const t = grainPricePerT(v.cat), out = { ok: false, lines: [], per: 0 };
   if (!(t > 0)) { out.lines.push('Für ' + v.cat + ' ist in Grunddaten → Getreide kein Preis hinterlegt.'); return out; }
-  let perDt = t / 10; out.lines.push('Getreide ' + v.cat + ': ' + fmt(perDt, 2) + ' ' + curSym(baseCur()) + ' je dt');
-  for (let n = 1; n <= 3; n++) {
+  let perDt = t / 10; out.lines.push('Getreide ' + v.cat + ': ' + moneyT(perDt) + ' je dt (' + moneyT(t) + ' je t)');
+  for (let n = 1; n <= BEIZ_MAX; n++) {
     const it = db.items.find(i => i.id === v['beiz' + n]), d = num(v['bdose' + n]);
     if (!it || !(d > 0)) continue;
     if (!(it.price > 0)) { out.lines.push('Beizmittel ' + it.name + ': kein Preis im Lager hinterlegt.'); continue; }
-    const c = d * it.price; perDt += c; out.lines.push(it.name + ': ' + fmt(d, 3) + ' ' + it.unit + '/dt × ' + fmt(it.price, 2) + ' = ' + fmt(c, 2) + ' ' + curSym(baseCur()) + ' je dt');
+    const c = d * it.price; perDt += c; out.lines.push(it.name + ': ' + fmt(d, 3) + ' ' + it.unit + '/dt × ' + moneyT(it.price) + ' = ' + moneyT(c) + ' je dt');
   }
   const u = v.unit; out.per = u === 'dt' ? perDt : u === 'kg' ? perDt / 100 : u === 't' ? perDt * 10 : 0;
   out.ok = out.per > 0; out.perDt = perDt;
-  out.lines.push('= ' + fmt(perDt, 2) + ' ' + curSym(baseCur()) + ' je dt Saatgut' + (out.ok ? '' : ' (für diese Einheit nicht umrechenbar)'));
+  out.lines.push('= ' + moneyT(perDt) + ' je dt Saatgut = ' + moneyT(perDt * 10) + ' je Tonne' + (out.ok ? '' : ' (für diese Einheit nicht umrechenbar)'));
   return out;
 }
 function itemDialog(K, it, preset) {
@@ -6436,9 +6438,9 @@ function itemDialog(K, it, preset) {
       f.push({ k: 'kgPer', label: 'Gewicht einer Einheit / eines Sacks in kg (optional)', type: 'number', step: 'any', min: 0, v: it.kgPer == null ? '' : it.kgPer, hint: 'Wird gebraucht, um die Saatmenge (kg/ha) im Auftrag vom Lager abzubuchen.', showIf: v => v.unit === 'Einheit' || v.unit === 'Sack' });
       f.push({ k: 'own', label: 'Eigenes Saatgut (Beizung selbst angemischt)', type: 'checkbox', v: !!it.own });
       const bz = it.beiz || [];
-      for (let n = 1; n <= 3; n++) {
-        f.push({ k: 'beiz' + n, label: 'Beizung ' + n + ' (nur zugelassene Beizmittel)', type: 'select', opts: beizOpts(), v: (bz[n - 1] && bz[n - 1].id) || '', showIf: (n === 1 ? (v => SEED_CEREAL.indexOf(v.cat) >= 0) : (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + (n - 1)])) });
-        f.push({ k: 'bdose' + n, label: 'Menge Beizung ' + n + ' pro dt Saatgut (in der Einheit des Mittels)', type: 'number', step: 'any', min: 0, v: (bz[n - 1] && bz[n - 1].dose) || '', showIf: (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + n]) });
+      for (let n = 1; n <= BEIZ_MAX; n++) {
+        f.push({ k: 'beiz' + n, label: 'Beizung ' + n, type: 'select', opts: beizOpts(), v: (bz[n - 1] && bz[n - 1].id) || '', showIf: (n === 1 ? (v => SEED_CEREAL.indexOf(v.cat) >= 0) : (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + (n - 1)])) });
+        f.push({ k: 'bdose' + n, label: 'Menge pro dt Saatgut', type: 'number', step: 'any', min: 0, v: (bz[n - 1] && bz[n - 1].dose) || '', showIf: (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + n]) });
       }
       f.push({ k: 'calc', type: 'note', showIf: v => SEED_CEREAL.indexOf(v.cat) >= 0 });
     } else if (ps) {
@@ -6460,7 +6462,7 @@ function itemDialog(K, it, preset) {
     const rec = isNew ? { id: newId(), kind: K.k } : it;
     Object.assign(rec, { name: v.name.trim(), unit: v.unit, hallId: v.hall || null, note: v.note.trim() });
     if (!gr) { rec.cat = v.cat;
-      if (sa) { rec.crops = v.cat; rec.own = !!v.own; rec.unitInfo = (v.unitInfo || '').trim(); rec.kgPer = num(v.kgPer); rec.beiz = [1, 2, 3].map(n => ({ id: v['beiz' + n] || '', dose: num(v['bdose' + n]) })).filter(b => b.id && b.dose > 0); if (SEED_CEREAL.indexOf(v.cat) < 0) rec.beiz = []; }
+      if (sa) { rec.crops = v.cat; rec.own = !!v.own; rec.unitInfo = (v.unitInfo || '').trim(); rec.kgPer = num(v.kgPer); rec.beiz = [1, 2, 3, 4, 5, 6, 7, 8].map(n => ({ id: v['beiz' + n] || '', dose: num(v['bdose' + n]) })).filter(b => b.id && b.dose > 0); if (SEED_CEREAL.indexOf(v.cat) < 0) rec.beiz = []; }
       else if (ps) { rec.crops = v.crops.split(/[,;]/).map(s => s.trim()).filter(Boolean).join(', '); rec.dose = num(v.dose); rec.min = num(v.min); rec.wait = num(v.wait); }
       if (du) rec.nut = nutRead(v);
       if ('price' in v) rec.price = Math.round(conv(num(v.price) || 0, v.cur || baseCur(), baseCur()) * 1000000) / 1000000; }
@@ -6489,6 +6491,15 @@ function itemDialog(K, it, preset) {
     }
   }));
   let lastReg = null;
+  if (sa) {
+    for (let n = 1; n <= BEIZ_MAX; n++) {
+      const l1 = document.querySelector('#dlgBody label[data-k="beiz' + n + '"]'), l2 = document.querySelector('#dlgBody label[data-k="bdose' + n + '"]');
+      if (l1 && l2) { const row = document.createElement('div'); row.className = 'mixline'; row.style.gridTemplateColumns = 'minmax(0,1fr) 7rem'; l1.parentNode.insertBefore(row, l1); row.appendChild(l1); row.appendChild(l2); }
+    }
+    const lblBz = () => { for (let n = 1; n <= BEIZ_MAX; n++) { const el = $('df_beiz' + n); if (!el) continue; const m = db.items.find(i => i.id === el.value); setLbl('bdose' + n, m ? 'Menge in ' + m.unit + ' pro dt' : 'Menge pro dt'); } };
+    lblBz(); $('dlgBody').addEventListener('change', e => { if (e.target.id && /^df_beiz/.test(e.target.id)) lblBz(); });
+    if (!REG) { ensureReg(); const t = setInterval(() => { if (!$('dlg').open) { clearInterval(t); return; } if (REG) { clearInterval(t); for (let n = 1; n <= BEIZ_MAX; n++) { const el = $('df_beiz' + n); if (el) el.innerHTML = optHtml(beizOpts(), el.value); } } }, 500); }
+  }
   function setLbl(k, t) { const l = document.querySelector('#dlgBody label[data-k="' + k + '"]'); if (l && l.firstChild) l.firstChild.textContent = t; }
   const sv = (k, val) => { const el = $('df_' + k); if (el) el.value = val == null ? '' : val; };
   function applyReg(p) {

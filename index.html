@@ -6406,19 +6406,21 @@ function grainPricePerT(crop) {
   const pr = g ? priceOf(g.id, null, baseCur()) : null; return pr ? pr.price : null;
 }
 /* Kalkulation Eigenbau-Saatgut: Preis des Getreides + Beizung, je Lagereinheit (Basiswährung) */
+const UNIT_KG = { g: 0.001, kg: 1, dt: 100, t: 1000 };
 function seedCalc(v) {
-  const t = grainPricePerT(v.cat), out = { ok: false, lines: [], per: 0 };
+  const t = grainPricePerT(v.cat), out = { ok: false, lines: [], per: 0 }, u = v.unit || 'dt';
+  const kgU = UNIT_KG[u] || ((u === 'Einheit' || u === 'Sack') && num(v.kgPer) > 0 ? num(v.kgPer) : 0);
   if (!(t > 0)) { out.lines.push('Für ' + v.cat + ' ist in Grunddaten → Getreide kein Preis hinterlegt.'); return out; }
-  let perDt = t / 10; out.lines.push('Getreide ' + v.cat + ': ' + moneyT(perDt) + ' je dt (' + moneyT(t) + ' je t)');
+  if (!(kgU > 0)) { out.lines.push('Für die Einheit „' + u + '“ fehlt das Gewicht in kg (Feld oben), daher keine Umrechnung des Getreidepreises.'); return out; }
+  let per = t / 1000 * kgU; out.lines.push('Getreide ' + v.cat + ': ' + moneyT(t) + ' je t = ' + moneyT(per) + ' je ' + u);
   for (let n = 1; n <= BEIZ_MAX; n++) {
     const it = db.items.find(i => i.id === v['beiz' + n]), d = num(v['bdose' + n]);
     if (!it || !(d > 0)) continue;
     if (!(it.price > 0)) { out.lines.push('Beizmittel ' + it.name + ': kein Preis im Lager hinterlegt.'); continue; }
-    const c = d * it.price; perDt += c; out.lines.push(it.name + ': ' + fmt(d, 3) + ' ' + it.unit + '/dt × ' + moneyT(it.price) + ' = ' + moneyT(c) + ' je dt');
+    const c = d * it.price; per += c; out.lines.push(it.name + ': ' + fmt(d, 3) + ' ' + it.unit + '/' + u + ' × ' + moneyT(it.price) + ' = ' + moneyT(c) + ' je ' + u);
   }
-  const u = v.unit; out.per = u === 'dt' ? perDt : u === 'kg' ? perDt / 100 : u === 't' ? perDt * 10 : 0;
-  out.ok = out.per > 0; out.perDt = perDt;
-  out.lines.push('= ' + moneyT(perDt) + ' je dt Saatgut = ' + moneyT(perDt * 10) + ' je Tonne' + (out.ok ? '' : ' (für diese Einheit nicht umrechenbar)'));
+  out.per = per; out.ok = true;
+  out.lines.push('= ' + moneyT(per) + ' je ' + u + (u === 't' ? '' : ' = ' + moneyT(per / kgU * 1000) + ' je Tonne'));
   return out;
 }
 function itemDialog(K, it, preset) {
@@ -6440,7 +6442,7 @@ function itemDialog(K, it, preset) {
       const bz = it.beiz || [];
       for (let n = 1; n <= BEIZ_MAX; n++) {
         f.push({ k: 'beiz' + n, label: 'Beizung ' + n, type: 'select', opts: beizOpts(), v: (bz[n - 1] && bz[n - 1].id) || '', showIf: (n === 1 ? (v => SEED_CEREAL.indexOf(v.cat) >= 0) : (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + (n - 1)])) });
-        f.push({ k: 'bdose' + n, label: 'Menge pro dt Saatgut', type: 'number', step: 'any', min: 0, v: (bz[n - 1] && bz[n - 1].dose) || '', showIf: (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + n]) });
+        f.push({ k: 'bdose' + n, label: 'Menge pro Einheit Saatgut', type: 'number', step: 'any', min: 0, v: (bz[n - 1] && bz[n - 1].dose) || '', showIf: (v => SEED_CEREAL.indexOf(v.cat) >= 0 && !!v['beiz' + n]) });
       }
       f.push({ k: 'calc', type: 'note', showIf: v => SEED_CEREAL.indexOf(v.cat) >= 0 });
     } else if (ps) {
@@ -6496,8 +6498,8 @@ function itemDialog(K, it, preset) {
       const l1 = document.querySelector('#dlgBody label[data-k="beiz' + n + '"]'), l2 = document.querySelector('#dlgBody label[data-k="bdose' + n + '"]');
       if (l1 && l2) { const row = document.createElement('div'); row.className = 'mixline'; row.style.gridTemplateColumns = 'minmax(0,1fr) 7rem'; l1.parentNode.insertBefore(row, l1); row.appendChild(l1); row.appendChild(l2); }
     }
-    const lblBz = () => { for (let n = 1; n <= BEIZ_MAX; n++) { const el = $('df_beiz' + n); if (!el) continue; const m = db.items.find(i => i.id === el.value); setLbl('bdose' + n, m ? 'Menge in ' + m.unit + ' pro dt' : 'Menge pro dt'); } };
-    lblBz(); $('dlgBody').addEventListener('change', e => { if (e.target.id && /^df_beiz/.test(e.target.id)) lblBz(); });
+    const lblBz = () => { for (let n = 1; n <= BEIZ_MAX; n++) { const el = $('df_beiz' + n); if (!el) continue; const m = db.items.find(i => i.id === el.value); setLbl('bdose' + n, (m ? 'Menge in ' + m.unit : 'Menge') + ' pro ' + (($('df_unit') || {}).value || 'dt')); } };
+    lblBz(); $('dlgBody').addEventListener('change', e => { if (e.target.id && /^df_(beiz|unit)/.test(e.target.id)) lblBz(); });
     if (!REG) { ensureReg(); const t = setInterval(() => { if (!$('dlg').open) { clearInterval(t); return; } if (REG) { clearInterval(t); for (let n = 1; n <= BEIZ_MAX; n++) { const el = $('df_beiz' + n); if (el) el.innerHTML = optHtml(beizOpts(), el.value); } } }, 500); }
   }
   function setLbl(k, t) { const l = document.querySelector('#dlgBody label[data-k="' + k + '"]'); if (l && l.firstChild) l.firstChild.textContent = t; }

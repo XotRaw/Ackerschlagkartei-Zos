@@ -246,6 +246,7 @@
   .mixline.ps .reasonrow input { margin-top: 4px; }
   input.over { color: #d62828 !important; border-color: #d62828 !important; font-weight: 700; background: color-mix(in srgb, #d62828 12%, transparent); }
   .mixline > .enHint { grid-column: 1 / -1; font-size: .82rem; color: var(--muted); }
+  .mixline > .enCnt { grid-column: 1 / -1; font-size: .82rem; color: var(--muted); } .mixline > .enCnt.bad { color: var(--warn); font-weight: 600; } .selrow { display: flex; gap: 6px; align-items: center; } .selrow > select, .selrow > input { flex: 1; min-width: 0; } .infobtn { display: none; } .mixline.ps .infobtn { display: inline-block; } .infobtn2 { flex: none; } .dnote { font-size: .85rem; line-height: 1.45; } .dnote .bad { color: var(--warn); font-weight: 600; }
   .mixline > .enHint.bad { color: var(--warn); font-weight: 600; }
   @media (max-width: 460px) { .mixline.ps { grid-template-columns: minmax(0, 1fr) 4.2rem 3.8rem; } .mixline.ps .namecell, .mixline.ps .reasonrow { grid-column: 1 / -1; } }
   .enx { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
@@ -307,7 +308,7 @@ details.fold .foldtools{margin:8px 0}
         </div>
         <datalist id="nameSuggest"></datalist>
         <div class="mixline" id="enMainRow">
-          <label class="namecell"><span id="enNameLabel">Mittel / Maßnahme</span><input id="enName" required list="nameSuggest" placeholder="z. B. Roundup, KAS, Pflügen"></label>
+          <label class="namecell"><span id="enNameLabel">Mittel / Maßnahme</span><span class="selrow"><input id="enName" required list="nameSuggest" placeholder="z. B. Roundup, KAS, Pflügen"><button type="button" class="small infobtn" data-pinfo="1" title="Infotafel zum Mittel">ⓘ</button></span></label>
           <label class="reasonrow" id="enReasonRow" hidden>Spritzgrund<select id="enReason" class="enRs"></select><input id="enReasonTxt" class="enRt" hidden placeholder="Grund eintippen"></label>
           <label><span id="enAmtLabel">Menge</span><input id="enAmount" type="number" step="any" min="0"></label>
           <label>Einheit
@@ -3235,7 +3236,7 @@ function dlgVals() {
 }
 function dialog(title, fields, onSave, opts) {
   opts = opts || {};
-  dlgFields = fields; dlgCb = onSave; dlgChange = opts.onChange || null;
+  dlgFields = fields; dlgCb = onSave; dlgChange = opts.onChange || null; dlgInput = opts.onInput || null;
   $('dlgTitle').textContent = title;
   $('dlgErr').textContent = '';
   const init = {}; fields.forEach(f => { init[f.k] = f.v == null ? '' : f.v; });
@@ -3243,9 +3244,10 @@ function dialog(title, fields, onSave, opts) {
     const id = 'df_' + f.k;
     if (f.type === 'multi') return '<div class="mfield"><span>' + esc(f.label) + '</span><div class="multibox" id="' + id + '" data-multi="1"><input type="search" class="msearch" placeholder="Schlag suchen …"><div class="mlist">' + f.opts.map(o => '<label class="chk"><input type="checkbox" value="' + esc(o.v) + '"> <span class="mt">' + esc(o.l) + '</span></label>').join('') + '</div><div class="mcount hint"></div></div></div>';
     if (f.type === 'more') return '<button type="button" class="small" data-more="1" id="df_' + f.k + '"' + (f.allShown ? ' hidden' : '') + '>＋ Weiteres Mittel (Mischung)</button>';
+    if (f.type === 'note') return '<div class="dnote hint" id="' + id + '"></div>';
     if (f.type === 'checkbox') return '<label class="chk"><input type="checkbox" id="' + id + '"' + (f.v ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
     let h;
-    if (f.type === 'select') h = '<select id="' + id + '">' + optHtml(f.optsFn ? f.optsFn(init) : f.opts, f.v) + '</select>';
+    if (f.type === 'select') { h = '<select id="' + id + '">' + optHtml(f.optsFn ? f.optsFn(init) : f.opts, f.v) + '</select>'; if (f.info) h = '<span class="selrow">' + h + '<button type="button" class="small infobtn2" data-dinfo="' + f.k + '" title="Infotafel zum Mittel">ⓘ</button></span>'; }
     else if (f.type === 'textarea') h = '<textarea id="' + id + '" rows="2">' + esc(f.v || '') + '</textarea>';
     else h = '<input id="' + id + '" type="' + (f.type || 'text') + '"' + (f.step ? ' step="' + f.step + '"' : '') + (f.min != null ? ' min="' + f.min + '"' : '') + (f.req ? ' required' : '') + (f.list ? ' list="' + f.list + '"' : '') + ' value="' + esc(f.v == null ? '' : f.v) + '">';
     if (f.row) return '<label class="mixrow" data-row="' + f.row + '"' + (f.hid ? ' hidden' : '') + '>' + esc(f.label) + h + '</label>';
@@ -3261,7 +3263,7 @@ function dialog(title, fields, onSave, opts) {
 }
 function dlgApplyShow() {
   const v = dlgVals();
-  dlgFields.forEach(f => { if (!f.showIf) return; const el = $('df_' + f.k), lab = el && el.closest('label'); if (lab) lab.hidden = !f.showIf(v); });
+  dlgFields.forEach(f => { if (!f.showIf) return; const el = $('df_' + f.k), lab = el && el.closest('label,.dnote'); if (lab) lab.hidden = !f.showIf(v); });
 }
 function dlgRefresh(k) {
   const vals = dlgVals();
@@ -3270,7 +3272,7 @@ function dlgRefresh(k) {
   });
 }
 $('dlgBody').addEventListener('input', e => {
-  if (!e.target.classList.contains('msearch')) return;
+  if (!e.target.classList.contains('msearch')) { if (dlgInput) dlgInput(dlgVals()); return; }
   const q = e.target.value.trim().toLowerCase();
   e.target.closest('.multibox').querySelectorAll('.mlist label').forEach(l => { l.hidden = !!q && l.textContent.toLowerCase().indexOf(q) < 0; });
 });
@@ -3287,7 +3289,14 @@ $('dlgBody').addEventListener('click', e => {
   const r = first.dataset.row; $('dlgBody').querySelectorAll('.mixrow[data-row="' + r + '"]').forEach(x => { x.hidden = false; });
   if (!$('dlgBody').querySelector('.mixrow[hidden]')) b.hidden = true;
 });
-let dlgDelete = null;
+let dlgDelete = null, dlgInput = null;
+$('dlgBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-dinfo]'); if (!b) return;
+  const el = $('df_' + b.dataset.dinfo), it = el && db.items.find(i => i.id === el.value);
+  if (!it) { toast('Bitte zuerst ein Mittel wählen.'); return; }
+  A.itemInfo({ id: it.id }, null, null, dlgFieldCrop());
+});
+function dlgFieldCrop() { const v = dlgVals(), ids = Array.isArray(v.fields) ? v.fields : (v.field ? [v.field] : []); const c = fieldCropChip1(fieldById(ids[0])); return c ? c[0] : ''; }
 $('dlgForm').addEventListener('submit', e => {
   e.preventDefault();
   const v = dlgVals();
@@ -4103,7 +4112,7 @@ function deriveJob(j) {
     const it = l.it, dose = l.dose;
     if (!(dose > 0)) return;
     const K = KINDS.find(k => k.k === it.kind), amount = round2(dose * haW);
-    db.entries.push({ id: newId(), fieldId: j.fieldId, date, type: K.entry, name: it.name, amount, unit: it.unit, ha: haW, note: fmt(dose, 2) + ' ' + it.unit + '/ha · ' + j.title, userId: j.userId, jobId: j.id, itemId: it.id });
+    db.entries.push({ id: newId(), fieldId: j.fieldId, date, type: K.entry, name: it.name, amount, unit: it.unit, ha: haW, note: fmt(dose, 2) + ' ' + it.unit + '/ha · ' + j.title, userId: j.userId, jobId: j.id, itemId: it.id, reason: it.kind === 'ps' && j.reason ? j.reason : undefined });
     db.moves.push({ id: newId(), itemId: it.id, date, ts: Date.now(), userId: j.userId, delta: -amount, fieldId: j.fieldId, note: 'Auftrag: ' + j.title, jobId: j.id, hallId: it.hallId || null });
   });
 }
@@ -4518,6 +4527,107 @@ function regUses(p, cq) {
   const ts = cropTerms(cq);
   return p.u.filter(u => ts.some(t => norm(u.k).indexOf(t) >= 0 || u.c.some(i => norm(REG.crops[i]).indexOf(t) >= 0)));
 }
+
+function regFind(name) { if (!REG || !name) return null; const k = norm(String(name).trim()); return REG.p.find(x => x._n === k) || REG.p.find(x => x._n.indexOf(k) === 0 || k.indexOf(x._n) === 0) || null; }
+function useCnt(u) {
+  const m = /max\.\s*(\d+)\s*x(\s*(?:\/\s*rok|za rok|na podzim|na jaře|za vegetační sezónu|za sezónu|za vegetaci))?/i.exec(u.p || ''); if (!m) return null;
+  const q = (m[2] || '').toLowerCase();
+  return { n: +m[1], per: /rok/.test(q) ? 'pro Jahr' : /podzim/.test(q) ? 'im Herbst' : /jaře/.test(q) ? 'im Frühjahr' : /vegeta|sezón/.test(q) ? 'pro Vegetationsperiode' : 'je Kultur und Saison' };
+}
+function chipCq(fids) { const set = {}; fids.forEach(id => { const c = fieldCropChip1(fieldById(id)); set[c ? c[0] : ''] = c; }); const k = Object.keys(set); return k.length === 1 && set[k[0]] ? norm(CROPCZ[set[k[0]][0]]) : ''; }
+/* Wie oft darf das Mittel angewendet werden, und wie oft wurde es dieses Jahr schon auf den Schlägen eingesetzt? */
+function countInfo(p, fids, reason, year) {
+  const cq = chipCq(fids), us = cq ? regUses(p, cq) : p.u;
+  let sel = reason ? us.filter(u => (u.s || '').trim() === reason) : []; if (!sel.length) sel = us;
+  const seen = {}, list = [];
+  sel.forEach(u => { const c = useCnt(u); if (c) { const k = c.n + '|' + c.per; if (!seen[k]) { seen[k] = 1; list.push(c); } } });
+  list.sort((a, b) => a.n - b.n);
+  let txt = list.length ? 'Anwendungen: höchstens ' + list.map(c => c.n + '× ' + c.per).join(' bzw. ') + ' (laut Register).' : 'Anwendungen: im Register keine Höchstzahl für diesen Fall gefunden.';
+  let warn = false;
+  const per = {}; db.entries.forEach(e => { if (e.type === 'Pflanzenschutz' && fids.indexOf(e.fieldId) >= 0 && String(e.date).slice(0, 4) === String(year) && norm(e.name) === p._n) (per[e.fieldId] = per[e.fieldId] || new Set()).add(e.gid || e.id); });
+  const ks = Object.keys(per);
+  if (ks.length) {
+    const mx = Math.max.apply(null, ks.map(k => per[k].size));
+    txt += ' Dieses Jahr schon ' + mx + '× eingesetzt' + (fids.length > 1 ? ' (auf einzelnen Schlägen)' : '') + '.';
+    if (list.length && mx >= list[0].n && /Jahr|Saison|Vegetation/.test(list[0].per)) { warn = true; txt += ' Die erlaubte Anzahl ist damit erreicht.'; }
+  } else if (fids.length) txt += ' Dieses Jahr noch nicht eingesetzt.';
+  return { txt, warn };
+}
+function maxPerHaFor(p, fids, reason, unit) {
+  const uf = UNIT_F[unit]; if (!uf) return null;
+  const cq = chipCq(fids); let us = cq ? regUses(p, cq) : p.u;
+  const byR = reason && reason !== '__other' ? us.filter(u => (u.s || '').trim() === reason) : []; if (byR.length) us = byR;
+  let best = null;
+  us.forEach(u => { const m = /^(l|kg|g|ml)\/ha$/.exec((u.mj || '').trim()); if (!m || !u.mx) return; const v = parseFloat(String(u.mx).replace(',', '.')); if (!(v > 0)) return; const f0 = UNIT_F[m[1]]; if (f0[0] !== uf[0]) return; const x = v * f0[1] / uf[1]; if (best == null || x > best.v) best = { v: x, src: v + ' ' + m[1] + '/ha' }; });
+  return best;
+}
+function reasonOpts(it, fids) {
+  const out = [{ v: '', l: '– Grund wählen –' }], p = it && regFind(it.name);
+  if (p) { const cq = chipCq(fids), us = cq ? regUses(p, cq) : p.u, seen = {}; us.forEach(u => { const s = (u.s || '').trim(); if (s && !seen[s] && out.length < 61) { seen[s] = 1; out.push({ v: s, l: DE_ON() ? deTr(s) : s, g: 'Laut Zulassung' }); } }); }
+  REASON_GEN.forEach(r => out.push({ v: r, l: r, g: 'Allgemein' }));
+  out.push({ v: '__other', l: 'Anderer Grund …' });
+  return out;
+}
+/* Gemeinsamer Block für „Neuer Auftrag“ und „Eigene Arbeit“: Angaben abhängig von der Maschine */
+function workBlock(getYear) {
+  const mk = (v, kind) => implKind(v.impl) === kind;
+  const isMit = v => mk(v, IK_PS) || mk(v, IK_DU), isPs = v => mk(v, IK_PS), isSaat = v => mk(v, IK_SAAT);
+  const fids = v => (Array.isArray(v.fields) ? v.fields : []).filter(id => fieldById(id));
+  const kindsFor = v => (isPs(v) ? ['ps'] : ['du']).filter(x => mittelKinds().indexOf(x) >= 0);
+  const cropV = v => cropOf(fieldById(fids(v)[0]));
+  const iopts = v => itemOpts(cropV(v), kindsFor(v));
+  const fl = [
+    { k: 'item', label: 'Mittel / Dünger', type: 'select', info: true, opts: [{ v: '', l: '– kein Mittel –' }], optsFn: iopts, deps: ['impl', 'fields'], showIf: isMit },
+    { k: 'reason', label: 'Spritzgrund', type: 'select', opts: [{ v: '', l: '– Grund wählen –' }], optsFn: v => reasonOpts(db.items.find(i => i.id === v.item), fids(v)), deps: ['item', 'fields', 'impl'], showIf: v => isPs(v) && !!v.item },
+    { k: 'reasonTxt', label: 'Grund eintippen', showIf: v => isPs(v) && !!v.item && v.reason === '__other' },
+    { k: 'dose', label: 'Aufwandmenge pro ha', type: 'number', step: 'any', min: 0, showIf: isMit },
+    { k: 'mnote', type: 'note', showIf: v => isMit(v) && !!v.item }
+  ];
+  for (let n = 2; n <= MIX_MAX; n++) {
+    fl.push({ k: 'item' + n, label: 'Mittel ' + n + ' der Mischung', type: 'select', info: true, opts: [{ v: '', l: '– kein Mittel –' }], optsFn: iopts, deps: ['impl', 'fields'], showIf: (v => isPs(v) && (n === 2 || v['item' + (n - 1)]) && !!v.item) });
+    fl.push({ k: 'dose' + n, label: 'Aufwandmenge ' + n + ' pro ha', type: 'number', step: 'any', min: 0, showIf: (v => isPs(v) && !!v['item' + n]) });
+  }
+  fl.push({ k: 'variety', label: 'Sorte', list: 'varList', showIf: isSaat });
+  fl.push({ k: 'seedRate', label: 'Saatmenge in kg/ha', type: 'number', step: 'any', min: 0, showIf: isSaat });
+  const rowsOf = v => { const r = []; for (let n = 1; n <= MIX_MAX; n++) { const id = n === 1 ? v.item : v['item' + n]; if (id) { const it = db.items.find(i => i.id === id); if (it) r.push({ it, dose: num(n === 1 ? v.dose : v['dose' + n]) || it.dose || 0, n }); } } return r; };
+  const reasonOf2 = v => (v.reason === '__other' ? (v.reasonTxt || '').trim() : v.reason || '');
+  const noteHtml = v => {
+    const rs = rowsOf(v), f = fids(v), ha = f.reduce((a, id) => a + (fieldById(id).ha || 0), 0), out = []; let bad = false;
+    if (!REG && rs.some(r => r.it.kind === 'ps')) { ensureReg(); return 'Zulassungsliste wird geladen …'; }
+    rs.forEach((r, i) => {
+      const p = regFind(r.it.name), pre = rs.length > 1 ? '<b>' + esc(r.it.name) + ':</b> ' : '';
+      if (r.it.kind !== 'ps') { if (r.dose > 0 && ha > 0) out.push(pre + 'Gesamtmenge: ' + fmt(r.dose * ha, 2) + ' ' + esc(r.it.unit) + ' bei ' + fmt(ha, 2) + ' ha'); return; }
+      if (!p) { out.push(pre + 'Kein Registereintrag gefunden – bitte Etikett beachten.'); return; }
+      const mx = maxPerHaFor(p, f, i === 0 ? reasonOf2(v) : '', r.it.unit);
+      let l = pre;
+      if (mx) { const over = r.dose > mx.v + 1e-9; if (over) bad = true; l += (over ? '<span class="bad">Zu viel: ' : '') + 'Höchstmenge laut Register: <b>' + esc(mx.src) + '</b>' + (ha > 0 ? ' (gesamt höchstens ' + fmt(mx.v * ha, 2) + ' ' + esc(r.it.unit) + ' bei ' + fmt(ha, 2) + ' ha)' : '') + (over ? '</span>' : ''); }
+      else l += 'Keine Höchstmenge pro ha im Register gefunden – bitte Etikett beachten.';
+      const c = countInfo(p, f, i === 0 ? reasonOf2(v) : '', getYear(v)); l += '<br>' + (c.warn ? '<span class="bad">' + esc(c.txt) + '</span>' : esc(c.txt));
+      out.push(l);
+    });
+    return out.join('<br>');
+  };
+  const refresh = v => { const n = $('df_mnote'); if (n && !n.closest('.dnote').hidden) n.innerHTML = noteHtml(v); };
+  const validate = v => {
+    if (!isMit(v) || !v.item) return null;
+    const rs = rowsOf(v);
+    if (isPs(v)) {
+      if (!REG) { ensureReg(); return 'Die Zulassungsliste wird noch geladen – bitte gleich nochmal speichern.'; }
+      if (!reasonOf2(v)) return 'Bitte den Spritzgrund wählen.';
+      for (const r of rs) { const p = regFind(r.it.name); if (!p) continue; const mx = maxPerHaFor(p, fids(v), r === rs[0] ? reasonOf2(v) : '', r.it.unit); if (mx && r.dose > mx.v + 1e-9) return r.it.name + ': Aufwandmenge über der Höchstmenge (' + mx.src + ').'; }
+    }
+    return null;
+  };
+  const data = v => isMit(v) ? { itemId: v.item || null, dose: num(v.dose), mix: isPs(v) ? mixFromVals(v) : [], reason: isPs(v) && v.item ? (reasonOf2(v) || null) : null } : { itemId: null, dose: null, mix: [], reason: null };
+  const change = (k, vals, set) => {
+    if (k === 'item') { const it = db.items.find(i => i.id === vals.item); set('dose', it && it.dose ? it.dose : ''); }
+    const mm = /^item(\d)$/.exec(k); if (mm) { const it2 = db.items.find(i => i.id === vals[k]); set('dose' + mm[1], it2 && it2.dose ? it2.dose : ''); }
+    if (k === 'variety') { const vr = (db.varieties || []).find(x => x.name === vals.variety.trim()); if (vr && vr.rate) set('seedRate', vr.rate); }
+    setTimeout(() => refresh(dlgVals()), 0);
+  };
+  const start = () => { ensureReg(); refreshVarList(''); const t = setInterval(() => { if (!$('dlg').open) { clearInterval(t); return; } if (REG) { clearInterval(t); refresh(dlgVals()); } }, 400); };
+  return { fields: fl, change, refresh, validate, data, start, isSaat };
+}
 function regView() {
   let h = '<section class="card"><div class="cardhead"><h2>Zulassung (CZ)</h2></div>';
   if (regState === 'err') return h + '<p class="empty">Die Zulassungsliste konnte nicht geladen werden.</p><p><button class="small primary" data-act="regRetry">Erneut laden</button></p></section>';
@@ -4697,6 +4807,11 @@ const DE_ON = () => window.__lang === 'de';
 const CZ_CROP = { 'pšenice': 'Weizen', 'ječmen': 'Gerste', 'žito': 'Roggen', 'oves': 'Hafer', 'tritikale': 'Triticale', 'řepka': 'Raps', 'kukuřice': 'Mais', 'slunečnice': 'Sonnenblume', 'brambory': 'Kartoffeln', 'cukrovka': 'Zuckerrüben', 'hrách': 'Erbsen', 'sója': 'Soja', 'len': 'Lein', 'jetel': 'Klee', 'vojtěška': 'Luzerne', 'trávy': 'Gräser', 'obilniny': 'Getreide', 'olejniny': 'Ölpflanzen', 'luskoviny': 'Hülsenfrüchte', 'chmel': 'Hopfen', 'réva': 'Wein', 'vinná réva': 'Weinrebe', 'rajče': 'Tomaten', 'cibule': 'Zwiebeln', 'mrkev': 'Karotten', 'zelí': 'Kohl', 'jahodník': 'Erdbeeren', 'jabloň': 'Apfel', 'hrušeň': 'Birne', 'třešeň': 'Kirsche', 'švestka': 'Pflaume', 'okurka': 'Gurken', 'fazol': 'Bohnen', 'bob': 'Ackerbohnen', 'lupina': 'Lupinen', 'mák': 'Mohn', 'hořčice': 'Senf', 'proso': 'Hirse', 'čirok': 'Sorghum', 'pohanka': 'Buchweizen', 'lilek': 'Auberginen', 'paprika': 'Paprika', 'špenát': 'Spinat', 'salát': 'Salat', 'ředkvička': 'Radieschen', 'tykev': 'Kürbis', 'dýně': 'Kürbis', 'travní': 'Gras-', 'orná půda': 'Ackerland', 'orná bez plodiny': 'Acker ohne Kultur', 'bez plodiny': 'ohne Kultur' };
 function cropDE(s) {
   if (!DE_ON() || !s) return s;
+  const fr = TERM_SPLIT(String(s));
+  if (fr.length > 1 || TERMS[String(s).trim().toLowerCase()]) return fr.map(x => TERMS[x.trim().toLowerCase()] || cropDE0(x.trim())).join(', ');
+  return cropDE0(s);
+}
+function cropDE0(s) {
   let t = String(s).trim(); const low = t.toLowerCase();
   const m = /^(\S+)\s+(ozim\S*|jarn\S*)(.*)$/i.exec(t);
   if (m && CZ_CROP[m[1].toLowerCase()]) { const pre = /^ozim/i.test(m[2]) ? 'Winter' : 'Sommer', n = CZ_CROP[m[1].toLowerCase()]; return pre + n.toLowerCase() + (m[3] ? ' ' + cropDE(m[3].trim()) : ''); }
@@ -4715,10 +4830,23 @@ const DE_PAIRS = [
   ['preemergentně', 'Vorauflauf'], ['postemergentně', 'Nachauflauf'], ['preventivně', 'vorbeugend'], ['po sklizni', 'nach der Ernte'], ['před setím', 'vor der Saat'], ['před výsadbou', 'vor dem Pflanzen'], ['po zasetí', 'nach der Saat'], ['do 5 dnů po zasetí', 'bis 5 Tage nach der Saat'],
   ['l vody/ha', 'l Wasser/ha'], ['vody/ha', 'Wasser/ha'], ['za rok', 'pro Jahr'], ['na jaře', 'im Frühjahr'], ['na podzim', 'im Herbst'], ['aplikační kapaliny', 'Spritzflüssigkeit'], ['nebo', 'oder'], [' dnů', ' Tage'], [' dny', ' Tage'], [' dní', ' Tage']
 ];
+
+DE_PAIRS.push(['při výsadbě','bei der Pflanzung'],['po výsadbě','nach der Pflanzung'],['před výsadbou','vor der Pflanzung'],['při prvním výskytu','beim ersten Auftreten'],['při prvních příznacích napadení','bei ersten Befallssymptomen'],['při prvních příznacích','bei ersten Symptomen'],['není omezen','Anzahl nicht begrenzt'],['za vegetační sezónu plodiny','pro Vegetationsperiode der Kultur'],['za vegetační sezónu','pro Vegetationsperiode'],['za vegetaci','pro Vegetationsperiode'],['během vegetačního období','während der Vegetationsperiode'],['OL dle použitého přípravku','Wartefrist je nach verwendetem Mittel'],['před rašením','vor dem Austrieb'],['se zapravením','mit Einarbeitung'],['od počátku prodlužování hlavního stonku','ab Beginn des Schossens (Haupttrieb-Streckung)'],['na počátku kladení vajíček do 2. vývojového stádia larvy','zu Beginn der Eiablage bis zum 2. Larvenstadium'],['jednoděložné','einkeimblättrige'],['dvouděložné','zweikeimblättrige'],['pýr','Quecke'],[' listů',' Blätter'],['do 5 dnů po','bis 5 Tage nach'],['při','bei'],['před','vor'],['po','nach'],['bez','ohne'],['jako','als'],['do','bis'],['od','ab'],['během','während'],['a','und'],['dnů po zasetí','Tage nach der Saat']);
+const TERMS = {"řepka olejka ozimá":"Winterraps","řepka olejka jarní":"Sommerraps","řepka olejka":"Raps","řepka":"Raps","řepka ozimá":"Winterraps","řepka jarní":"Sommerraps","hořčice bílá":"Weißer Senf","hořčice":"Senf","mák setý":"Mohn","mák":"Mohn","okrasné rostliny":"Zierpflanzen","okrasné dřeviny":"Ziergehölze","jádroviny":"Kernobst","peckoviny":"Steinobst","chřest":"Spargel","lesní porosty":"Waldbestände","lesní školky":"Forstbaumschulen","lesní hospodářství":"Forstwirtschaft","kukuřice setá":"Mais","kukuřice":"Mais","kukuřice cukrová":"Zuckermais","kukuřice mimo kukuřice cukrová":"Mais (außer Zuckermais)","slunečnice roční":"Sonnenblume","slunečnice":"Sonnenblume","hrách cukrový":"Zuckererbse","hrách dřeňový":"Markerbse","hrách setý":"Erbse","hrách":"Erbse","hrách na zrno":"Körnererbse","svazenka vratičolistá":"Phazelie (Bienenfreund)","slivoň":"Pflaume","trávníky":"Rasen","brambor":"Kartoffel","brambory":"Kartoffeln","mrkev":"Möhre","cibule":"Zwiebel","zelí":"Kohl","zelí hlávkové":"Weißkohl","bob":"Ackerbohne","peluška":"Futtererbse (Peluschke)","jetel":"Klee","vojtěška":"Luzerne","louky a pastviny":"Wiesen und Weiden","louky":"Wiesen","pastviny":"Weiden","pšenice":"Weizen","pšenice špalda":"Dinkel","žito":"Roggen","tritikale":"Triticale","ječmen":"Gerste","oves":"Hafer","třešeň":"Kirsche","višeň":"Sauerkirsche","len setý":"Lein","len":"Lein","rajče":"Tomate","baklažán":"Aubergine","sója luštinatá":"Sojabohne","sója":"Soja","celer bulvový":"Knollensellerie","celer":"Sellerie","cukrovka":"Zuckerrübe","řepa krmná":"Futterrübe","řepa salátová":"Rote Bete","pór":"Lauch","broskvoň":"Pfirsich","nektarinky":"Nektarinen","broskvoně":"Pfirsiche","květák":"Blumenkohl","jabloň":"Apfel","hrušeň":"Birne","zemědělská půda":"landwirtschaftliche Fläche","všechny plodiny":"alle Kulturen","zemědělská půda -všechny plodiny":"landwirtschaftliche Fläche – alle Kulturen","orná půda":"Ackerland","strniště":"Stoppelfeld","nezemědělská půda":"Nichtkulturland","vodnice":"Speiserübe","tuřín":"Steckrübe","réva vinná":"Weinrebe","réva":"Weinrebe","chmel":"Hopfen","chmel otáčivý":"Hopfen","zelenina":"Gemüse","ovocné dřeviny":"Obstgehölze","jahodník":"Erdbeere","maliník":"Himbeere","rybíz":"Johannisbeere","angrešt":"Stachelbeere","salát":"Salat","špenát":"Spinat","okurka":"Gurke","dýně":"Kürbis","paprika":"Paprika","česnek":"Knoblauch","petržel":"Petersilie","luskoviny":"Hülsenfrüchte","obiloviny":"Getreide","obilniny":"Getreide","kořenová zelenina":"Wurzelgemüse","sklady prázdné":"leere Lager","mlýny, pekárny, sila":"Mühlen, Bäckereien, Silos","mlýny":"Mühlen","pekárny":"Bäckereien","sila":"Silos","provozy":"Betriebsräume","obilniny uskladněné, rýže":"gelagertes Getreide, Reis","sklady":"Lager","hlávkový salát":"Kopfsalat","kapusta":"Kohl (Wirsing)","brokolice":"Brokkoli","kedlubna":"Kohlrabi","rukola":"Rucola","konopí":"Hanf","pohanka":"Buchweizen","proso":"Hirse","čirok":"Sorghum","lupina":"Lupine","jílek":"Weidelgras","trávy":"Gräser","travní porosty":"Grünland","travní semenné porosty":"Grassamenbestände","pícniny":"Futterpflanzen","jetelovinotrávní směsi":"Kleegrasgemenge","zeleninové brukvovité":"Kohlgemüse","brukvovitá zelenina":"Kohlgemüse","cibulová zelenina":"Zwiebelgemüse","plodová zelenina":"Fruchtgemüse","listová zelenina":"Blattgemüse","okurky":"Gurken","vinná réva":"Weinrebe","ovocné stromy":"Obstbäume","drobné ovoce":"Beerenobst","bobuloviny":"Beerenobst","regulace růstu":"Wachstumsregulierung","zkrácení stébla":"Halmverkürzung","obaleč jablečný":"Apfelwickler","fomová hniloba brukvovitých":"Phoma-Wurzelhals- und Stängelfäule (Kreuzblütler)","fomová hniloba":"Phoma-Wurzelhals- und Stängelfäule","plíseň bramborová":"Kraut- und Knollenfäule (Kartoffel)","stéblolam":"Halmbruch","krytonosec šešulový":"Kohlschotenrüssler","bejlomorka kapustová":"Kohlschotenmücke","fuzariózy":"Fusariosen","plíseň révová":"Falscher Mehltau (Rebe)","plíseň révy":"Falscher Mehltau (Rebe)","padlí révové":"Echter Mehltau (Rebe)","rez žitná":"Roggenbraunrost","rez pšeničná":"Weizenbraunrost","rez plevová":"Gelbrost","rez travní":"Schwarzrost","alternáriová skvrnitost brukvovitých":"Alternaria-Schwärze (Kreuzblütler)","půdní houby":"Bodenpilze","padlí miříkovitých":"Echter Mehltau (Doldenblütler)","braničnatka pšeničná":"Blattseptoria (Septoria tritici)","braničnatka plevová":"Spelzenbräune (Septoria nodorum)","svilušky":"Spinnmilben","sviluška chmelová":"Hopfenspinnmilbe","sviluška ovocná":"Obstbaumspinnmilbe","plíseň zelná":"Falscher Mehltau (Kohl)","čerň řepková":"Rapsschwärze (Alternaria)","hlízenka obecná":"Weißstängeligkeit (Sklerotinia)","zavíječ kukuřičný":"Maiszünsler","padání klíčních rostlin":"Auflaufkrankheiten (Keimlingskrankheiten)","plíseň cibulová":"Falscher Mehltau (Zwiebel)","plíseň bramboru":"Kraut- und Knollenfäule (Kartoffel)","plíseň okurková":"Falscher Mehltau (Gurke)","fomové černání stonků řepky":"Phoma-Stängelfäule (Raps)","nežádoucí vegetace":"unerwünschte Vegetation","nežádoucí dřeviny":"unerwünschte Gehölze","ježatka kuří noha":"Hühnerhirse","oves hluchý":"Flughafer","rosička krvavá":"Blutrote Fingerhirse","bér sivý":"Graugrüne Borstenhirse","bér zelený":"Grüne Borstenhirse","jílek vytrvalý":"Deutsches Weidelgras","lipnice roční":"Einjähriges Rispengras","třtina křovištní":"Land-Reitgras","heřmánek":"Kamille","rmen":"Hundskamille","heřmánek pravý":"Echte Kamille","rmen rolní":"Acker-Hundskamille","chundelka metlice":"Windhalm","pýr plazivý":"Quecke","svízel přítula":"Klettenlabkraut","výdrol obilnin":"Ausfallgetreide","výdrol řepky":"Ausfallraps","merlík bílý":"Weißer Gänsefuß","merlík":"Gänsefuß","ptačinec prostřední":"Vogelmiere","ptačinec":"Vogelmiere","kokoška pastuší tobolka":"Hirtentäschel","penízek rolní":"Acker-Hellerkraut","mák vlčí":"Klatschmohn","pcháč oset":"Ackerkratzdistel","pcháč":"Kratzdistel","kopřiva":"Brennnessel","rdesno":"Knöterich","rdesno blešník":"Floh-Knöterich","rdesno ptačí":"Vogelknöterich","rdesno kolénkaté":"Vogelknöterich","violka rolní":"Acker-Stiefmütterchen","violka":"Stiefmütterchen","ředkev ohnice":"Hederich","hořčice rolní":"Ackersenf","heřmánkovec nevonný":"Geruchlose Kamille","heřmánkovec přímořský":"Strandkamille","lilek černý":"Schwarzer Nachtschatten","mračňák Theophrastův":"Samtpappel","durman obecný":"Stechapfel","laskavec ohnutý":"Zurückgekrümmter Amarant","laskavec":"Amarant","ambrozie peřenolistá":"Beifußblättriges Traubenkraut","štírovník":"Hornklee","pelyněk":"Beifuß","pelyněk černobýl":"Gewöhnlicher Beifuß","mšice střemchová":"Traubenkirschenlaus (Haferblattlaus)","kyjatka osenní":"Getreideblattlaus (Sitobion avenae)","mšice jabloňová":"Apfelblattlaus","mšice chmelová":"Hopfenblattlaus","mšice zelná":"Kohlblattlaus","mšice broskvoňová":"Grüne Pfirsichblattlaus","mšice maková":"Schwarze Bohnenblattlaus","mšice jako přenašeči viróz":"Blattläuse als Virusüberträger","mšice, svilušky, puklice, štítenky":"Blattläuse, Spinnmilben, Napfschildläuse, Deckelschildläuse","puklice":"Napfschildläuse","štítenky":"Deckelschildläuse","mšice":"Blattläuse","slimáci, plzáci":"Schnecken (Nackt- und Gehäuseschnecken)","slimáci":"Nacktschnecken","plzáci":"Ackerschnecken","plevele dvouděložné jednoleté":"einjährige zweikeimblättrige Unkräuter","plevele dvouděložné":"zweikeimblättrige Unkräuter","plevele jednoděložné":"einkeimblättrige Unkräuter","plevele lipnicovité":"Ungräser","plevele":"Unkräuter","plevel":"Unkräuter","krytonosec řepkový":"Rapsstängelrüssler","krytonosec čtyřzubý":"Gefleckter Kohltriebrüssler","blýskáček řepkový":"Rapsglanzkäfer","dřepčíci":"Erdflöhe","dřepčík olejkový":"Rapserdfloh","bázlivec kukuřičný":"Westlicher Maiswurzelbohrer","drátovec":"Drahtwürmer","drátovci":"Drahtwürmer","mandelinka bramborová":"Kartoffelkäfer","housenky":"Raupen","můry":"Eulenfalter","osenice":"Erdraupen (Wintersaateule)","osenice polní":"Wintersaateule","listopas":"Blattrandkäfer","kováříci":"Schnellkäfer","molice":"Weiße Fliegen","molice skleníková":"Weiße Fliege","třásněnky":"Thripse","třásněnka":"Thrips","obaleči":"Wickler","obaleč":"Wickler","sviluška":"Spinnmilbe","zrnokaz":"Samenkäfer","vlnatka krvavá":"Blutlaus","pilatka":"Blattwespe","strupovitost jabloně":"Apfelschorf","strupovitost jádrovin":"Schorf (Kernobst)","strupovitost":"Schorf","strupovitost hrušně":"Birnenschorf","padlí jabloňové":"Apfelmehltau","padlí travní":"Echter Mehltau (Getreide)","padlí":"Echter Mehltau","padlí řepné":"Echter Mehltau (Rübe)","padlí ovocných dřevin":"Echter Mehltau (Obstgehölze)","monilióza":"Monilia-Fruchtfäule","monilióza peckovin":"Monilia (Steinobst)","kadeřavost broskvoně":"Kräuselkrankheit (Pfirsich)","šedá plísň":"Grauschimmel","plíseň šedá":"Grauschimmel (Botrytis)","šedá hniloba":"Grauschimmel","hniloba":"Fäule","cerkosporióza řepy":"Cercospora-Blattflecken (Rübe)","ramulárie":"Ramularia-Blattflecken","ramulárie řepy":"Ramularia (Rübe)","listová skvrnitost":"Blattfleckenkrankheit","skvrnitost":"Blattflecken","skvrnitosti":"Blattflecken","hnědá skvrnitost":"Braunfleckigkeit","listové skvrnitosti":"Blattfleckenkrankheiten","rhynchosporióza":"Blattflecken (Rhynchosporium)","rhynchosporióza ječmene":"Blattfleckenkrankheit (Gerste)","hnědnutí":"Bräune","sněť zakrslá":"Zwergsteinbrand","sněť mazlavá":"Steinbrand","sněť":"Brand","snětivost":"Brand","sněti":"Brandkrankheiten","sněť prašná":"Flugbrand","sněť ječná":"Gerstenflugbrand","sněť pšeničná":"Weizensteinbrand","snětivost kukuřičná":"Maisbeulenbrand","rez":"Rost","rez ječná":"Gerstenzwergrost","rez kukuřičná":"Maisrost","rez řepná":"Rübenrost","rez slunečnicová":"Sonnenblumenrost","rzi":"Roste","rzi obilnin":"Getreiderost","sklerotiniová hniloba":"Weißstängeligkeit (Sklerotinia)","sklerotiniová hniloba slunečnice":"Sklerotinia (Sonnenblume)","fuzáriová":"Fusarium","fuzarióza klasů":"Ährenfusariose","fuzariózy klasů":"Ährenfusariosen","fusariózy":"Fusariosen","fusarióza":"Fusariose","klasová fuzarióza":"Ährenfusariose","plíseň sněžná":"Schneeschimmel","plíseň sněžná (Microdochium nivale)":"Schneeschimmel (Microdochium nivale)","sněžná plíseň":"Schneeschimmel","mykotoxiny":"Mykotoxine","snížení rizika mykotoxinů":"Verringerung des Mykotoxinrisikos","virózy":"Viruskrankheiten","bakteriózy":"Bakteriosen","bakteriální choroby":"Bakterielle Krankheiten","houbové choroby":"Pilzkrankheiten","houbové a bakteriální choroby":"Pilz- und Bakterienkrankheiten","choroby":"Krankheiten","škůdci":"Schädlinge","skladištní škůdci":"Vorratsschädlinge","sklad. škůdci":"Vorratsschädlinge","hlodavci":"Nager","hraboš polní":"Feldmaus","zvěř":"Wild","okus zvěří":"Wildverbiss","ochrana proti okusu zvěří":"Wildverbissschutz","ptáci":"Vögel","zvýšení odolnosti proti poléhání":"Verbesserung der Standfestigkeit (Lagervermeidung)","zvýšení odolnosti proti poléhání, zkrácení stébla":"Verbesserung der Standfestigkeit, Halmverkürzung","zkrácení stébla, zvýšení odolnosti proti poléhání":"Halmverkürzung, Verbesserung der Standfestigkeit","zvýšení odolnosti rostlin proti houbovým a bakteriálním chorobám":"Erhöhung der Pflanzenresistenz gegen Pilz- und Bakterienkrankheiten","zvýšení odolnosti rostlin":"Erhöhung der Pflanzenresistenz","podpora zdravotního stavu":"Förderung der Pflanzengesundheit","zvýšení výnosu":"Ertragssteigerung","podpora zakořeňování":"Förderung der Bewurzelung","podpora růstu":"Wachstumsförderung","podpora kvetení":"Blühförderung","zvýšení kvality":"Qualitätssteigerung","zlepšení kvality":"Qualitätsverbesserung","zlepšení skladovatelnosti":"bessere Lagerfähigkeit","desikace":"Sikkation (Abreife)","desikace porostu":"Sikkation (Abreife)","desikace porostu před sklizní":"Sikkation vor der Ernte","předsklizňová úprava":"Vorernte-Behandlung","sklizňová úprava":"Erntebehandlung","předsklizňové ošetření":"Vorernte-Behandlung","zrání":"Abreife","urychlení zrání":"Abreifebeschleunigung","řízení zrání":"Reifesteuerung","zjednodušení sklizně":"Ernteerleichterung","zlepšení sklizně":"Ernteerleichterung","vyrovnání porostu":"Bestandsausgleich","ukončení vegetace":"Vegetationsabschluss","hubení výdrolu":"Ausfallbekämpfung","hubení plevelů":"Unkrautbekämpfung","hubení":"Bekämpfung","hubení výdrolu obilnin":"Ausfallgetreidebekämpfung","hubení vegetace":"Vegetationsbekämpfung","hubení nežádoucí vegetace":"Bekämpfung unerwünschter Vegetation","hubení vytrvalých plevelů":"Bekämpfung mehrjähriger Unkräuter","hubení plevelů před setím":"Unkrautbekämpfung vor der Saat","obnova TTP":"Grünlanderneuerung (TTP)","zrušení porostu":"Umbruch / Beseitigung des Bestandes","zrušení travního porostu":"Umbruch von Grünland","zrušení TTP":"Grünlandumbruch","potlačení pařezové výmladnosti":"Unterdrückung von Stockausschlag","chemická probírka":"chemische Ausdünnung (Durchforstung)","probírka":"Ausdünnung","probírka plodů":"Fruchtausdünnung","probírka květů":"Blütenausdünnung","odnožování":"Bestockung","podpora odnožování":"Bestockungsförderung","růstový regulátor":"Wachstumsregler","regulátor růstu":"Wachstumsregler","mořidlo":"Beizmittel","moření":"Beizung","moření osiva":"Saatgutbeizung","mořidlo osiva":"Saatgutbeize","ochrana osiva":"Saatgutschutz","dezinfekce":"Desinfektion","desinfekce":"Desinfektion","dezinfekce půdy":"Bodenentseuchung","půdní desinfekce":"Bodenentseuchung","půdní škůdci":"Bodenschädlinge"};
+Object.assign(TERMS, {"kapusta růžičková":"Rosenkohl","skleníkové kultury":"Gewächshauskulturen","peckoviny (pouze broskvoně a nektarinky)":"Steinobst (nur Pfirsiche und Nektarinen)","meruňka":"Aprikose","kdouloň":"Quitte","petržel kořenová":"Wurzelpetersilie","cibule šalotka":"Schalotte","skleníky":"Gewächshäuser","jehličnany":"Nadelgehölze","pastinák":"Pastinake","zelenina brukvovitá":"Kohlgemüse (Kreuzblütler)","listnaté dřeviny":"Laubgehölze","růže":"Rosen","fazol na lusky":"Gemüsebohne (grüne Hülsen)","čočka":"Linse","ovocné školky":"Obstbaumschulen","mišpule":"Mispel","meloun vodní":"Wassermelone","meloun cukrový":"Zuckermelone","okrasné školky":"Ziergehölz-Baumschulen","železnice":"Bahnanlagen","zelenina košťálová":"Kohlgemüse","zelenina tykvovitá":"Kürbisgewächse (Gemüse)","oves setý":"Saathafer","kostřava červená":"Rotschwingel","zelenina kořenová":"Wurzelgemüse","cesty a místa se stromy":"Wege und Baumbereiche","zemědělská půda dočasně neobdělávaná":"landwirtschaftliche Fläche, vorübergehend nicht bewirtschaftet","jehličnany, listnaté dřeviny":"Nadel- und Laubgehölze","rynchosporiová skvrnitost":"Rhynchosporium-Blattflecken","rynchosporiová skvrnitost ječmene":"Rhynchosporium-Blattflecken (Gerste)","ramulariová skvrnitost ječmene":"Ramularia-Blattflecken (Gerste)","alternáriová skvrnitost":"Alternaria-Blattflecken","alternáriová skvrnitost slunečnice":"Alternaria-Blattflecken (Sonnenblume)","helmintosporióza obilnin":"Helminthosporium-Blattflecken (Getreide)","hlemýžďovití":"Gehäuseschnecken","psárka polní":"Ackerfuchsschwanz","moniliová hniloba":"Monilia-Fruchtfäule","moniliová spála":"Monilia-Spitzendürre","kořenomorka bramborová":"Wurzeltöterkrankheit (Rhizoctonia, Kartoffel)","sněť mazlavá pšeničná":"Weizensteinbrand","sněť prašná pšeničná":"Weizenflugbrand","černopáska bavlníková":"Baumwollkapselwurm (Maiskolbenwurm)","housenky motýlů":"Schmetterlingsraupen","zvýšení jistoty přezimování":"Verbesserung der Überwinterungssicherheit","antraknóza":"Anthraknose","pytiová hniloba":"Pythium-Fäule","bér":"Borstenhirse","před vzejitím":"vor dem Auflaufen","při ohrožení porostů":"bei Gefährdung der Bestände","před květem":"vor der Blüte","případně při prvním výskytu":"gegebenenfalls beim ersten Auftreten","postemergentně časně":"Nachauflauf, früh","po začátku vegetace":"nach Vegetationsbeginn","nejpozději při prvním výskytu":"spätestens beim ersten Auftreten","v době maxima líhnutí larev":"zur Zeit des Höhepunkts des Larvenschlupfs","larvy mladé":"junge Larven","v období intenzívního růstu":"in der Phase intensiven Wachstums","při nalévání pupenů":"beim Knospenschwellen","nejpozději na počátku rašení":"spätestens zu Beginn des Austriebs","na počátku rašení":"zu Beginn des Austriebs","před odlistěním":"vor dem Entblättern","do sklizně":"bis zur Ernte","od: konce června":"ab Ende Juni","před květem před uzavřením řádků":"vor der Blüte, vor Reihenschluss","aktivně rostoucí":"aktiv wachsend"});
+const AUF_DE = {"SP1":"Mittel oder Packung nicht in Gewässer gelangen lassen (Anwendungsgerät nicht in der Nähe von Oberflächengewässern reinigen; Verunreinigung über Hof- und Straßenabläufe vermeiden).","EUH401":"Zur Vermeidung von Risiken für Mensch und Umwelt die Gebrauchsanleitung einhalten.","EUH208":"Enthält einen Stoff, der allergische Reaktionen hervorrufen kann.","EUH066":"Wiederholter Kontakt kann zu spröder oder rissiger Haut führen.","EUH210":"Sicherheitsdatenblatt auf Anfrage erhältlich.","EUH032":"Entwickelt bei Berührung mit Säure sehr giftige Gase.","EUH029":"Entwickelt bei Berührung mit Wasser giftige Gase.","EUH071":"Wirkt ätzend auf die Atemwege.","SPo2":"Schutzanzug nach der Anwendung waschen.","SPo5":"Behandelten Raum (Gewächshaus) lüften.","S2":"Darf nicht in die Hände von Kindern gelangen.","S13":"Von Nahrungsmitteln, Getränken und Futtermitteln fernhalten.","S36/37":"Geeignete Schutzkleidung und Schutzhandschuhe tragen."};
+const TERM_SPLIT = s => String(s).split(/,(?![^(]*\))/);
 DE_PAIRS.sort((a, b) => b[0].length - a[0].length);
 function deTr(s) {
   if (!DE_ON() || !s) return s;
   let t = String(s);
+  const keep = [];
+  t = TERM_SPLIT(t).map(fr => { const k = fr.trim().toLowerCase(); if (TERMS[k]) { keep.push(TERMS[k]); return fr.match(/^\s*/)[0] + '\u0001' + (keep.length - 1) + '\u0002'; } return fr; }).join(',');
+  t = t.replace(/od:\s*BBCH\s*(\d+)\s*,\s*do:\s*BBCH\s*(\d+)/gi, 'BBCH $1–$2').replace(/od:\s*BBCH\s*(\d+)/gi, 'ab BBCH $1').replace(/do:\s*BBCH\s*(\d+)/gi, 'bis BBCH $1').replace(/ve f\.\s*(\d+)\s*BBCH/gi, 'im Stadium BBCH $1');
+  const done = x => x.replace(/\u0001(\d+)\u0002/g, (m0, i) => keep[+i]);
+  return done(deTr0(t));
+}
+function deTr0(t) {
   t = t.replace(/od:\s*(\d+)\s*BBCH,\s*do:\s*(\d+)\s*BBCH/gi, 'BBCH $1–$2').replace(/od:\s*(\d+)\s*BBCH/gi, 'ab BBCH $1').replace(/do:\s*(\d+)\s*BBCH/gi, 'bis BBCH $1').replace(/max\.\s*BBCH\s*(\d+)/gi, 'höchstens BBCH $1');
   t = t.replace(/max\.\s*(\d+)x\s*\/\s*rok/gi, 'max. $1× pro Jahr').replace(/max\.\s*(\d+)x/gi, 'max. $1×').replace(/v intervalu\s*([\d–-]+)/gi, 'Abstand $1');
   t = t.replace(/plevele((?:\s*,?\s*(?:dvouděložné|jednoděložné|lipnicovité|jednoleté|dvouleté|vytrvalé))*)/gi, (m0, adj) => {
@@ -4775,6 +4903,7 @@ function infoHtml(p, cropName) {
         if (o.c) body += '<div class="czt">Gilt für: ' + esc(deTr(o.c.split(',').map(x => cropDE(x.trim())).join(', '))) + '</div>';
       }
       const txt = (t[2] || t[1] || '').trim();
+      if (DE_ON() && AUF_DE[(t[0] || '').trim()]) body += '<div>' + esc(AUF_DE[(t[0] || '').trim()]) + '</div>';
       if (txt) body += '<div class="czt">' + (DE_ON() ? 'Originaltext (tschechisch): ' : '') + esc(txt) + '</div>';
       ah += '<div class="auf"><b>' + esc(domLabel(dm)) + (t[0] ? ' · ' + esc(t[0]) : '') + '</b>' + body + '</div>';
     });
@@ -4785,6 +4914,7 @@ function infoHtml(p, cropName) {
 function infoModal() {
   let m = document.getElementById('infoModal');
   if (!m) { m = document.createElement('div'); m.id = 'infoModal'; m.hidden = true; document.body.appendChild(m); m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-iclose]')) m.hidden = true; const c = e.target.closest('[data-ichip]'); if (c) { infoState.crop = c.dataset.ichip; infoRender(); } }); }
+  const host = $('dlg') && $('dlg').open ? $('dlg') : document.body; if (m.parentNode !== host) host.appendChild(m);
   return m;
 }
 function infoRender() {
@@ -5494,7 +5624,18 @@ function autoUnit(sc) {
   const m = usesFor(p).map(u => /^(l|kg|g|ml)\/ha$/.exec((u.mj || '').trim())).find(Boolean);
   if (m) r.unit.value = m[1];
 }
-function limitApply(sc, clamp) {
+function limitApply(sc, clamp) { const ok = limitApply0(sc, clamp); try { cntUpdate(sc); } catch (e) { /* egal */ } return ok; }
+function cntUpdate(sc) {
+  const r = rowParts(sc); if (!r.hint) return;
+  let c = sc.querySelector(':scope > .enCnt'); if (!c) { c = document.createElement('div'); c.className = 'enCnt'; r.hint.after(c); }
+  c.hidden = true; c.classList.remove('bad');
+  if (!isPS() || !r.name.value.trim()) return;
+  if (!REG) { c.hidden = false; c.textContent = 'Anzahl der erlaubten Anwendungen: Zulassungsliste wird geladen …'; return; }
+  const p = regProduct(r.name.value) || regFind(r.name.value); if (!p) return;
+  const ci = countInfo(p, behIds(), reasonOf(sc), String($('enDate').value || today()).slice(0, 4));
+  c.hidden = false; c.textContent = ci.txt; c.classList.toggle('bad', ci.warn);
+}
+function limitApply0(sc, clamp) {
   const r = rowParts(sc); if (!r.hint) return true;
   const ps = isPS(); r.hint.hidden = true; r.hint.classList.remove('bad'); r.amt.classList.remove('over');
   r.amt.min = ps ? MIN_AMT : 0; r.amt.removeAttribute('max');
@@ -5537,6 +5678,7 @@ function limitAll(clamp) { return allRows().every(sc => limitApply(sc, clamp)); 
 document.addEventListener('change', e => {
   const t = e.target; if (!t) return;
   if (t.classList && t.classList.contains('enRs')) { const sc = t.closest('#enMainRow, .enx'); const r = rowParts(sc); if (r.txt) { r.txt.hidden = t.value !== '__other'; if (!r.txt.hidden) r.txt.focus(); } limitApply(sc, true); return; }
+  if (t.id === 'enDate') { reasonRefreshAll(); return; }
   if (t.id === 'enName' || (t.classList && t.classList.contains('enN')) || t.id === 'enField') { allRows().forEach(autoUnit); reasonRefreshAll(); return; }
   if (t.id === 'enAmount' || (t.classList && t.classList.contains('enA'))) { limitApply(t.closest('#enMainRow, .enx'), true); return; }
   if (t.id === 'enUnit' || (t.classList && t.classList.contains('enU'))) { t.dataset.touched = '1'; limitApply(t.closest('#enMainRow, .enx'), true); }
@@ -5552,7 +5694,7 @@ function calc() { /* Gesamtmenge steht im Hinweis unter der Menge (limitApply) *
 $('enType').addEventListener('change', updateEntryForm);
 $('enAdd').addEventListener('click', () => {
   const d = document.createElement('div');
-  d.innerHTML = '<div class="mixline' + (isPS() ? ' ps' : '') + '"><label class="namecell">Mittel<input class="enN" autocomplete="off" placeholder="weiteres Mittel"></label>' + (isPS() ? '<label class="reasonrow">Spritzgrund<select class="enRs"></select><input class="enRt" hidden placeholder="Grund eintippen"></label>' : '') + '<label><span class="enAL">Menge</span><input class="enA" type="number" step="any" min="0"></label><label>Einheit<select class="enU">' + $('enUnit').innerHTML + '</select></label><div class="enHint" hidden></div></div>';
+  d.innerHTML = '<div class="mixline' + (isPS() ? ' ps' : '') + '"><label class="namecell">Mittel<span class="selrow"><input class="enN" autocomplete="off" placeholder="weiteres Mittel"><button type="button" class="small infobtn" data-pinfo="1" title="Infotafel zum Mittel">ⓘ</button></span></label>' + (isPS() ? '<label class="reasonrow">Spritzgrund<select class="enRs"></select><input class="enRt" hidden placeholder="Grund eintippen"></label>' : '') + '<label><span class="enAL">Menge</span><input class="enA" type="number" step="any" min="0"></label><label>Einheit<select class="enU">' + $('enUnit').innerHTML + '</select></label><div class="enHint" hidden></div></div>';
   d.className = 'enx'; d.querySelector('.enU').value = $('enUnit').value; $('enMore').appendChild(d); reasonFill(d); d.querySelector('.enN').focus();
 });
 $('entryForm').addEventListener('submit', e => {
@@ -5834,19 +5976,28 @@ A.showOnMap = d => { const p = livePos(d.uid); ui.tab = 'kartei'; render(); if (
 
 A.jobNew = () => {
   if (!canW('orders')) return;
-  dialog('Neuer Auftrag', [
-    { k: 'title', label: 'Arbeit', req: true, list: 'titleSuggest' },
-    { k: 'fields', label: 'Schläge (einen oder mehrere antippen; pro Schlag entsteht ein Auftrag)', type: 'multi', opts: fieldMultiOpts() },
-    { k: 'user', label: 'Mitarbeiter', type: 'select', opts: staffOpts() },
-    { k: 'date', label: 'Datum', type: 'date', v: today(), req: true }
-  ].concat(mittelFields({})).concat([
+  const blk = workBlock(v => String(v.date || today()).slice(0, 4));
+  const fl = [
     { k: 'tractor', label: 'Traktor / Zugmaschine', type: 'select', opts: machOpts('Traktor') },
     { k: 'impl', label: 'Maschine / Gerät', type: 'select', opts: machOpts('Gerät') },
+    { k: 'user', label: 'Mitarbeiter', type: 'select', opts: staffOpts() },
+    { k: 'date', label: 'Datum', type: 'date', v: today(), req: true },
+    { k: 'fields', label: 'Schläge (einen oder mehrere antippen; pro Schlag entsteht ein Auftrag)', type: 'multi', opts: fieldMultiOpts() }
+  ].concat(blk.fields).concat([
+    { k: 'title', label: 'Bezeichnung (leer = automatisch, z. B. Spritzen, Säen, Grubbern)', list: 'titleSuggest' },
     { k: 'note', label: 'Hinweis für den Mitarbeiter', type: 'textarea' }
-  ]), v => {
-    (v.fields.length ? v.fields : [null]).forEach(fid => db.jobs.push({ id: newId(), title: v.title.trim(), fieldId: fid, userId: v.user, date: v.date, tractorId: v.tractor || null, implId: v.impl || null, itemId: v.item || null, dose: num(v.dose), mix: mixFromVals(v), note: v.note.trim(), status: 'offen', startedAt: null, endedAt: null, createdBy: me().id, source: 'zugewiesen', entryId: null, ha: null }));
+  ]);
+  dialog('Neuer Auftrag', fl, v => {
+    const err = blk.validate(v); if (err) return err;
+    const dd = blk.data(v), title = v.title.trim() || autoTitle(v.impl, v.tractor), saat = blk.isSaat(v);
+    (v.fields.length ? v.fields : [null]).forEach(fid => {
+      const j = { id: newId(), title, fieldId: fid, userId: v.user, date: v.date, tractorId: v.tractor || null, implId: v.impl || null, itemId: dd.itemId, dose: dd.dose, mix: dd.mix, reason: dd.reason, note: v.note.trim(), status: 'offen', startedAt: null, endedAt: null, createdBy: me().id, source: 'zugewiesen', entryId: null, ha: null };
+      if (saat) { j.variety = v.variety.trim() || null; j.seedRate = num(v.seedRate); }
+      db.jobs.push(j);
+    });
     toast(v.fields.length > 1 ? v.fields.length + ' Aufträge angelegt.' : 'Auftrag angelegt.');
-  }, { saveLabel: 'Auftrag anlegen', onChange: mittelChange });
+  }, { saveLabel: 'Auftrag anlegen', onChange: blk.change, onInput: blk.refresh });
+  blk.start();
 };
 A.jobStart = d => {
   const j = jobById(d.id); if (!j || j.userId !== me().id) return;
@@ -5917,52 +6068,38 @@ function autoTitle(impl, tractor) {
 A.jobSelf = () => {
   if (!canW('time')) return;
   if (runningJob(me().id)) { toast('Bitte beende zuerst deine laufende Arbeit.'); return; }
-  const mk = (v, kind) => { const k = implKind(v.impl); return k === kind; };
-  const isMit = v => mk(v, IK_PS) || mk(v, IK_DU);
-  const kindsFor = v => mk(v, IK_PS) ? ['ps'] : ['du'];
-  const cropV = v => cropOf(fieldById((Array.isArray(v.fields) ? v.fields : [])[0]));
+  const blk = workBlock(v => String(fromLocal(v.start) ? dstr(fromLocal(v.start)) : today()).slice(0, 4));
   const fl = [
     { k: 'fields', label: 'Schläge (einen oder mehrere antippen; pro Schlag entsteht eine Arbeit)', type: 'multi', opts: fieldMultiOpts() },
     { k: 'tractor', label: 'Traktor / Zugmaschine', type: 'select', opts: machOpts('Traktor') },
-    { k: 'impl', label: 'Maschine / Gerät', type: 'select', opts: machOpts('Gerät') },
-    { k: 'item', label: 'Mittel / Dünger', type: 'select', opts: [{ v: '', l: '– kein Mittel –' }], optsFn: v => itemOpts(cropV(v), kindsFor(v).filter(x => mittelKinds().indexOf(x) >= 0)), deps: ['impl', 'fields'], showIf: isMit },
-    { k: 'dose', label: 'Aufwandmenge pro ha', type: 'number', step: 'any', min: 0, showIf: isMit, hint: 'Leer = Vorgabe aus der Liste. Gesamtmenge = Aufwand × Fläche.' }
-  ];
-  for (let n = 2; n <= MIX_MAX; n++) {
-    fl.push({ k: 'item' + n, label: 'Mittel ' + n + ' der Mischung', type: 'select', opts: [{ v: '', l: '– kein Mittel –' }], optsFn: v => itemOpts(cropV(v), kindsFor(v).filter(x => mittelKinds().indexOf(x) >= 0)), deps: ['impl', 'fields'], showIf: (v => mk(v, IK_PS) && (n === 2 || v['item' + (n - 1)]) && !!v.item) });
-    fl.push({ k: 'dose' + n, label: 'Aufwandmenge ' + n + ' pro ha', type: 'number', step: 'any', min: 0, showIf: (v => mk(v, IK_PS) && !!v['item' + n]) });
-  }
-  fl.push({ k: 'variety', label: 'Sorte', list: 'varList', showIf: v => mk(v, IK_SAAT) });
-  fl.push({ k: 'seedRate', label: 'Saatmenge in kg/ha', type: 'number', step: 'any', min: 0, showIf: v => mk(v, IK_SAAT) });
-  fl.push({ k: 'start', label: 'Beginn', type: 'datetime-local', v: dtl(Date.now()), req: true });
-  fl.push({ k: 'end', label: 'Ende (leer lassen, wenn die Arbeit jetzt läuft)', type: 'datetime-local' });
-  fl.push({ k: 'title', label: 'Bezeichnung (leer = automatisch, z. B. Spritzen, Säen, Grubbern)', list: 'titleSuggest' });
-  fl.push({ k: 'note', label: 'Notiz', type: 'textarea' });
-  refreshVarList('');
+    { k: 'impl', label: 'Maschine / Gerät', type: 'select', opts: machOpts('Gerät') }
+  ].concat(blk.fields).concat([
+    { k: 'start', label: 'Beginn', type: 'datetime-local', v: dtl(Date.now()), req: true },
+    { k: 'end', label: 'Ende (leer lassen, wenn die Arbeit jetzt läuft)', type: 'datetime-local' },
+    { k: 'title', label: 'Bezeichnung (leer = automatisch, z. B. Spritzen, Säen, Grubbern)', list: 'titleSuggest' },
+    { k: 'note', label: 'Notiz', type: 'textarea' }
+  ]);
   dialog('Eigene Arbeit eintragen', fl, v => {
     const st = fromLocal(v.start), en = fromLocal(v.end);
     if (!st) return 'Bitte einen Beginn angeben.';
     if (en && en <= st) return 'Das Ende liegt vor dem Beginn.';
     if (!en && st > Date.now() + 60000) return 'Der Beginn liegt in der Zukunft.';
-    const ids = v.fields.length ? v.fields : [null];
-    const title = v.title.trim() || autoTitle(v.impl, v.tractor);
-    const mit = isMit(v), saat = mk(v, IK_SAAT);
+    const err = blk.validate(v); if (err) return err;
+    const ids = v.fields.length ? v.fields : [null], dd = blk.data(v);
+    const title = v.title.trim() || autoTitle(v.impl, v.tractor), saat = blk.isSaat(v);
     const tot = ids.reduce((a, id) => a + ((fieldById(id) || {}).ha || 1), 0);
     let t = st, made = 0;
     ids.forEach((fid, i) => {
       const f = fieldById(fid), share = ((f && f.ha) || 1) / tot;
       const s0 = en ? t : (i === 0 ? st : null), e0 = en ? (i === ids.length - 1 ? en : Math.round(t + (en - st) * share)) : null;
       if (en) t = e0;
-      const j = { id: newId(), title, fieldId: fid, userId: me().id, date: dstr(s0 || st), tractorId: v.tractor || null, implId: v.impl || null, itemId: mit ? (v.item || null) : null, dose: mit ? num(v.dose) : null, mix: mit ? mixFromVals(v) : [], note: v.note.trim(), status: en ? 'erledigt' : (i === 0 ? 'läuft' : 'offen'), startedAt: s0, endedAt: e0, createdBy: me().id, source: 'selbst', entryId: null, ha: null };
+      const j = { id: newId(), title, fieldId: fid, userId: me().id, date: dstr(s0 || st), tractorId: v.tractor || null, implId: v.impl || null, itemId: dd.itemId, dose: dd.dose, mix: dd.mix, reason: dd.reason, note: v.note.trim(), status: en ? 'erledigt' : (i === 0 ? 'läuft' : 'offen'), startedAt: s0, endedAt: e0, createdBy: me().id, source: 'selbst', entryId: null, ha: null };
       if (saat) { j.variety = v.variety.trim() || null; j.seedRate = num(v.seedRate); }
       db.jobs.push(j); made++; if (en) deriveJob(j);
     });
     toast(made > 1 ? made + ' Arbeiten eingetragen' + (en ? ' (Zeit nach Fläche aufgeteilt).' : ': die erste läuft, die anderen sind offen.') : (en ? 'Arbeit eingetragen.' : 'Arbeit läuft.'));
-  }, { onChange: (k, vals, set) => {
-    if (k === 'item') { const it = db.items.find(i => i.id === vals.item); set('dose', it && it.dose ? it.dose : ''); }
-    const mm = /^item(\d)$/.exec(k); if (mm) { const it2 = db.items.find(i => i.id === vals[k]); set('dose' + mm[1], it2 && it2.dose ? it2.dose : ''); }
-    if (k === 'variety') { const vr = (db.varieties || []).find(x => x.name === vals.variety.trim()); if (vr && vr.rate) set('seedRate', vr.rate); }
-  } });
+  }, { onChange: blk.change, onInput: blk.refresh });
+  blk.start();
 };
 A.jobEdit = d => {
   const j = jobById(d.id); if (!j || !(canW('edit') || canW('orders') || (can('job_pct') && !ro()))) return;
@@ -6064,12 +6201,12 @@ A.regAdd = d => {
 };
 A.impEinkauf = () => impEinkaufRun();
 A.regInfo = d => { const k = CROPCH.find(c => norm(CROPCZ[c[0]]) === d.c); infoOpen(+d.i, k ? k[0] : ''); };
-A.itemInfo = d => {
+A.itemInfo = (d, b, e, crop) => {
   const it = db.items.find(x => x.id === d.id); if (!it) return;
   if (!REG) { ensureReg(); toast('Zulassungsliste wird geladen – bitte gleich nochmal tippen.'); return; }
   const k = norm(it.name), p = REG.p.find(x => x._n === k) || REG.p.find(x => x._n.indexOf(k) === 0 || k.indexOf(x._n) === 0);
   if (!p) { toast('Zu „' + it.name + '“ gibt es keinen Registereintrag.'); return; }
-  infoOpen(REG.p.indexOf(p), '');
+  infoOpen(REG.p.indexOf(p), crop || '');
 };
 A.regRetry = () => { ensureReg(true); render(); };
 A.lagerTab = d => { ui.lagerTab = d.tab; ui.lagerCat = ''; ui.lagerCrop = ''; render(); };
@@ -6671,6 +6808,14 @@ A.permReset = (d, b) => {
 };
 
 document.addEventListener('click', e => {
+  const pb = e.target.closest('[data-pinfo]');
+  if (pb) {
+    const sc = pb.closest('#enMainRow, .enx'), nm = sc && rowParts(sc).name.value.trim();
+    if (!nm) { toast('Bitte zuerst ein Mittel eintragen.'); return; }
+    ensureReg(); if (!REG) { toast('Zulassungsliste wird geladen – bitte gleich nochmal tippen.'); return; }
+    const p = regFind(nm); if (!p) { toast('Zu „' + nm + '“ gibt es keinen Registereintrag.'); return; }
+    const ch = fieldCropChip(); infoOpen(REG.p.indexOf(p), ch ? ch[0] : ''); return;
+  }
   const b = e.target.closest('[data-act]'); if (!b) return;
   const f = A[b.dataset.act]; if (f) f(b.dataset, b, e);
 });
@@ -6728,7 +6873,7 @@ db.shifts.forEach(s => {
 ensureGps();
 render();
 (function(){ const ls = $('langSel'); if (ls) { ls.value = window.__lang || 'de'; ls.onchange = () => { save(); window.__setLang(ls.value); }; } })();
-window.__app = { get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
+window.__app = { deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
 })();
 </script>
 </body>

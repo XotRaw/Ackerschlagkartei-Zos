@@ -4096,6 +4096,7 @@ function deriveJob(j) {
   const f = fieldById(j.fieldId); if (!f) return;
   const machines = [j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ');
   const haW = j.ha || f.ha, date = dstr(j.startedAt);
+  if (j.variety || j.seedRate > 0) { if (j.variety) f.variety = j.variety; if (j.seedRate > 0) f.seedRate = j.seedRate; f.sowDate = date; }
   const e = { id: newId(), fieldId: j.fieldId, date, type: 'Arbeit', name: j.title, amount: round2(hrs(j.endedAt - j.startedAt)), unit: 'h', ha: haW, note: [machines, j.note].filter(Boolean).join(' · '), userId: j.userId, jobId: j.id };
   db.entries.push(e); j.entryId = e.id;
   jobLines(j).forEach(l => {
@@ -4108,7 +4109,7 @@ function deriveJob(j) {
 }
 function jobSub(j) {
   const ls = jobLines(j);
-  return [j.fieldId ? fName(j.fieldId) : null, [j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ') || null, ls.length ? ls.map(l => l.it.name + (l.dose ? ' ' + fmt(l.dose, 2) + ' ' + l.it.unit + '/ha' : '')).join(' + ') : null, j.date ? dateDE(j.date) : null].filter(Boolean).map(esc).join(' · ');
+  return [j.fieldId ? fName(j.fieldId) : null, j.variety || j.seedRate > 0 ? [j.variety ? 'Sorte ' + j.variety : null, j.seedRate > 0 ? fmt(j.seedRate, 1) + ' kg/ha' : null].filter(Boolean).join(', ') : null, [j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ') || null, ls.length ? ls.map(l => l.it.name + (l.dose ? ' ' + fmt(l.dose, 2) + ' ' + l.it.unit + '/ha' : '')).join(' + ') : null, j.date ? dateDE(j.date) : null].filter(Boolean).map(esc).join(' · ');
 }
 function jobCard(j) {
   const mine = j.userId === me().id && !ro();
@@ -4261,7 +4262,7 @@ function guessGeraet(n) {
   n = String(n || '');
   if (/spritz|pflanzenschutz|sprayer/i.test(n)) return 'Gerät Pflanzenschutz';
   if (/streu|dünger|duenger/i.test(n)) return 'Gerät Düngung';
-  if (/drill|säm|saat|legemaschine|sämaschine/i.test(n)) return 'Gerät Saat';
+  if (/drill|säm|saat|legemaschine|sämaschine|pronto|kreiselegge.*säm/i.test(n)) return 'Gerät Saat';
   if (/grubber|pflug|egge|fräse|kreisel|scheiben|walze|kultivator|schälpflug|packer|striegel|hacke/i.test(n)) return 'Gerät Bodenbearbeitung';
   return 'Gerät allgemein';
 }
@@ -5895,27 +5896,73 @@ function jobFinishDialog(id, pause) {
 }
 A.jobFinish = d => jobFinishDialog(d.id, false);
 A.jobPause = d => jobFinishDialog(d.id, true);
+const implKind = id => { const m = mById(id); if (!m) return ''; return m.kind === 'Gerät' ? guessGeraet(m.name) : m.kind; };
+const IK_PS = 'Gerät Pflanzenschutz', IK_DU = 'Gerät Düngung', IK_SAAT = 'Gerät Saat';
+function autoTitle(impl, tractor) {
+  const m = mById(impl), k = implKind(impl), n = m ? m.name : '';
+  if (k === IK_PS) return 'Spritzen';
+  if (k === IK_DU) return 'Düngen';
+  if (k === IK_SAAT) return 'Säen';
+  if (/grubber|terano|cultivator|kultivator/i.test(n)) return 'Grubbern';
+  if (/pflug/i.test(n)) return 'Pflügen';
+  if (/egge/i.test(n)) return 'Eggen';
+  if (/walze/i.test(n)) return 'Walzen';
+  if (/fräse/i.test(n)) return 'Fräsen';
+  if (/striegel/i.test(n)) return 'Striegeln';
+  if (/packer/i.test(n)) return 'Packen';
+  if (/mäh|mulch/i.test(n)) return 'Mähen';
+  if (/hacke/i.test(n)) return 'Hacken';
+  return n || (mById(tractor) ? mName(tractor) : 'Arbeit');
+}
 A.jobSelf = () => {
   if (!canW('time')) return;
   if (runningJob(me().id)) { toast('Bitte beende zuerst deine laufende Arbeit.'); return; }
-  dialog('Eigene Arbeit eintragen', [
-    { k: 'title', label: 'Arbeit', req: true, list: 'titleSuggest' },
-    { k: 'field', label: 'Schlag', type: 'select', opts: fieldOpts() }
-  ].concat(mittelFields({})).concat([
+  const mk = (v, kind) => { const k = implKind(v.impl); return k === kind; };
+  const isMit = v => mk(v, IK_PS) || mk(v, IK_DU);
+  const kindsFor = v => mk(v, IK_PS) ? ['ps'] : ['du'];
+  const cropV = v => cropOf(fieldById((Array.isArray(v.fields) ? v.fields : [])[0]));
+  const fl = [
+    { k: 'fields', label: 'Schläge (einen oder mehrere antippen; pro Schlag entsteht eine Arbeit)', type: 'multi', opts: fieldMultiOpts() },
     { k: 'tractor', label: 'Traktor / Zugmaschine', type: 'select', opts: machOpts('Traktor') },
     { k: 'impl', label: 'Maschine / Gerät', type: 'select', opts: machOpts('Gerät') },
-    { k: 'start', label: 'Beginn', type: 'datetime-local', v: dtl(Date.now()), req: true },
-    { k: 'end', label: 'Ende (leer lassen, wenn die Arbeit jetzt läuft)', type: 'datetime-local' },
-    { k: 'note', label: 'Notiz', type: 'textarea' }
-  ]), v => {
+    { k: 'item', label: 'Mittel / Dünger', type: 'select', opts: [{ v: '', l: '– kein Mittel –' }], optsFn: v => itemOpts(cropV(v), kindsFor(v).filter(x => mittelKinds().indexOf(x) >= 0)), deps: ['impl', 'fields'], showIf: isMit },
+    { k: 'dose', label: 'Aufwandmenge pro ha', type: 'number', step: 'any', min: 0, showIf: isMit, hint: 'Leer = Vorgabe aus der Liste. Gesamtmenge = Aufwand × Fläche.' }
+  ];
+  for (let n = 2; n <= MIX_MAX; n++) {
+    fl.push({ k: 'item' + n, label: 'Mittel ' + n + ' der Mischung', type: 'select', opts: [{ v: '', l: '– kein Mittel –' }], optsFn: v => itemOpts(cropV(v), kindsFor(v).filter(x => mittelKinds().indexOf(x) >= 0)), deps: ['impl', 'fields'], showIf: (v => mk(v, IK_PS) && (n === 2 || v['item' + (n - 1)]) && !!v.item) });
+    fl.push({ k: 'dose' + n, label: 'Aufwandmenge ' + n + ' pro ha', type: 'number', step: 'any', min: 0, showIf: (v => mk(v, IK_PS) && !!v['item' + n]) });
+  }
+  fl.push({ k: 'variety', label: 'Sorte', list: 'varList', showIf: v => mk(v, IK_SAAT) });
+  fl.push({ k: 'seedRate', label: 'Saatmenge in kg/ha', type: 'number', step: 'any', min: 0, showIf: v => mk(v, IK_SAAT) });
+  fl.push({ k: 'start', label: 'Beginn', type: 'datetime-local', v: dtl(Date.now()), req: true });
+  fl.push({ k: 'end', label: 'Ende (leer lassen, wenn die Arbeit jetzt läuft)', type: 'datetime-local' });
+  fl.push({ k: 'title', label: 'Bezeichnung (leer = automatisch, z. B. Spritzen, Säen, Grubbern)', list: 'titleSuggest' });
+  fl.push({ k: 'note', label: 'Notiz', type: 'textarea' });
+  refreshVarList('');
+  dialog('Eigene Arbeit eintragen', fl, v => {
     const st = fromLocal(v.start), en = fromLocal(v.end);
     if (!st) return 'Bitte einen Beginn angeben.';
     if (en && en <= st) return 'Das Ende liegt vor dem Beginn.';
     if (!en && st > Date.now() + 60000) return 'Der Beginn liegt in der Zukunft.';
-    const j = { id: newId(), title: v.title.trim(), fieldId: v.field || null, userId: me().id, date: dstr(st), tractorId: v.tractor || null, implId: v.impl || null, itemId: v.item || null, dose: num(v.dose), mix: mixFromVals(v), note: v.note.trim(), status: en ? 'erledigt' : 'läuft', startedAt: st, endedAt: en, createdBy: me().id, source: 'selbst', entryId: null, ha: null };
-    db.jobs.push(j); if (en) deriveJob(j);
-    toast(en ? 'Arbeit eingetragen.' : 'Arbeit läuft.');
-  }, { onChange: mittelChange });
+    const ids = v.fields.length ? v.fields : [null];
+    const title = v.title.trim() || autoTitle(v.impl, v.tractor);
+    const mit = isMit(v), saat = mk(v, IK_SAAT);
+    const tot = ids.reduce((a, id) => a + ((fieldById(id) || {}).ha || 1), 0);
+    let t = st, made = 0;
+    ids.forEach((fid, i) => {
+      const f = fieldById(fid), share = ((f && f.ha) || 1) / tot;
+      const s0 = en ? t : (i === 0 ? st : null), e0 = en ? (i === ids.length - 1 ? en : Math.round(t + (en - st) * share)) : null;
+      if (en) t = e0;
+      const j = { id: newId(), title, fieldId: fid, userId: me().id, date: dstr(s0 || st), tractorId: v.tractor || null, implId: v.impl || null, itemId: mit ? (v.item || null) : null, dose: mit ? num(v.dose) : null, mix: mit ? mixFromVals(v) : [], note: v.note.trim(), status: en ? 'erledigt' : (i === 0 ? 'läuft' : 'offen'), startedAt: s0, endedAt: e0, createdBy: me().id, source: 'selbst', entryId: null, ha: null };
+      if (saat) { j.variety = v.variety.trim() || null; j.seedRate = num(v.seedRate); }
+      db.jobs.push(j); made++; if (en) deriveJob(j);
+    });
+    toast(made > 1 ? made + ' Arbeiten eingetragen' + (en ? ' (Zeit nach Fläche aufgeteilt).' : ': die erste läuft, die anderen sind offen.') : (en ? 'Arbeit eingetragen.' : 'Arbeit läuft.'));
+  }, { onChange: (k, vals, set) => {
+    if (k === 'item') { const it = db.items.find(i => i.id === vals.item); set('dose', it && it.dose ? it.dose : ''); }
+    const mm = /^item(\d)$/.exec(k); if (mm) { const it2 = db.items.find(i => i.id === vals[k]); set('dose' + mm[1], it2 && it2.dose ? it2.dose : ''); }
+    if (k === 'variety') { const vr = (db.varieties || []).find(x => x.name === vals.variety.trim()); if (vr && vr.rate) set('seedRate', vr.rate); }
+  } });
 };
 A.jobEdit = d => {
   const j = jobById(d.id); if (!j || !(canW('edit') || canW('orders') || (can('job_pct') && !ro()))) return;

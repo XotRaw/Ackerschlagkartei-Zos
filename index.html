@@ -4981,10 +4981,10 @@ function lagerTabs() {
 function movesTable(ids) {
   const mv = db.moves.filter(m => ids.indexOf(m.itemId) >= 0).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts)).slice(0, 15);
   if (!mv.length) return '';
-  return '<h2 style="margin-top:14px">Letzte Buchungen</h2><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Artikel</th><th class="num">Menge</th><th>Halle</th><th>Schlag</th><th>Von</th><th>Notiz</th><th></th></tr></thead><tbody>' + mv.map(m => {
+  return '<details class="fold" data-uidetails="lagermoves"' + ((ui.det && ui.det.lagermoves) ? ' open' : '') + ' style="margin-top:14px"><summary><h2>Letzte Buchungen</h2></summary><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Artikel</th><th class="num">Menge</th><th>Halle</th><th>Schlag</th><th>Von</th><th>Notiz</th><th></th></tr></thead><tbody>' + mv.map(m => {
     const it = db.items.find(i => i.id === m.itemId) || { name: '?', unit: '' };
     return '<tr><td>' + dateDE(m.date) + '</td><td>' + esc(it.name) + '</td><td class="num">' + (m.delta > 0 ? '+' : '') + fmt(m.delta, 2) + ' ' + esc(it.unit) + '</td><td>' + (m.hallId ? esc(hallName(m.hallId)) : '') + '</td><td>' + (m.fieldId ? esc(fName(m.fieldId)) : '') + '</td><td>' + esc(uName(m.userId)) + '</td><td>' + esc(m.note || '') + '</td><td>' + (canW('edit') ? '<button class="small danger" data-act="moveDel" data-id="' + m.id + '" aria-label="Buchung löschen">✕</button>' : '') + '</td></tr>';
-  }).join('') + '</tbody></table></div>';
+  }).join('') + '</tbody></table></div></details>';
 }
 function catalogView(K) {
   const cc = db.gdCur || baseCur(), lm = n => fmt(conv(n, baseCur(), cc), 2) + ' ' + curSym(cc), seeStock = can(K.stock), canMove = can(K.move) && !ro(), prices = can('prices'), edit = canW('edit');
@@ -5052,7 +5052,7 @@ function grainView() {
     h += '<h2 style="margin-top:14px">Bestand</h2><div class="tablewrap"><table><thead><tr><th>Getreide</th><th class="num">Bestand</th><th class="num">Wert</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
   const done = db.loads.filter(l => l.status === 'eingelagert' && (seeStock || edit || l.userId === me().id)).sort((a, b) => b.ts - a.ts).slice(0, 12);
-  if (done.length) h += '<h2 style="margin-top:14px">Letzte Ladungen</h2><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Getreide</th><th>Schlag</th><th class="num">Menge</th><th>Halle</th><th>Fahrer</th></tr></thead><tbody>' + done.map(l => { const it = db.items.find(i => i.id === l.itemId) || { name: '?' }; return '<tr><td>' + dateDE(l.date) + '</td><td>' + esc(it.name) + '</td><td>' + esc(fName(l.fieldId)) + '</td><td class="num">' + fmt(l.tons, 2) + ' t</td><td>' + esc(hallName(l.hallId)) + '</td><td>' + esc(uName(l.userId)) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (done.length) h += '<details class="fold" data-uidetails="lagerloads"' + ((ui.det && ui.det.lagerloads) ? ' open' : '') + ' style="margin-top:14px"><summary><h2>Letzte Ladungen</h2></summary><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Getreide</th><th>Schlag</th><th class="num">Menge</th><th>Halle</th><th>Fahrer</th></tr></thead><tbody>' + done.map(l => { const it = db.items.find(i => i.id === l.itemId) || { name: '?' }; return '<tr><td>' + dateDE(l.date) + '</td><td>' + esc(it.name) + '</td><td>' + esc(fName(l.fieldId)) + '</td><td class="num">' + fmt(l.tons, 2) + ' t</td><td>' + esc(hallName(l.hallId)) + '</td><td>' + esc(uName(l.userId)) + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
   if (seeStock) h += movesTable(items.map(i => i.id));
   return h + '</section>';
 }

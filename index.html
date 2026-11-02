@@ -5309,7 +5309,7 @@ function machRate(id, yr) {
 }
 function evalData(yr) {
   Object.keys(machRateCache).forEach(k => delete machRateCache[k]);
-  const rows = {}, miss = { price: 0, wage: 0 };
+  const rows = {}, miss = { price: 0, wage: 0, date: 0, rate: 0 };
   db.fields.forEach(f => { rows[f.id] = { f, ha: f.ha || 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0 }; });
   db.jobs.filter(j => j.fieldId && j.startedAt && j.endedAt && dstr(j.startedAt).slice(0, 4) === yr).forEach(j => {
     const r = rows[j.fieldId]; if (!r) return;
@@ -5325,10 +5325,16 @@ function evalData(yr) {
     rows[e.fieldId][kind] += e.amount * fac * price;
   });
   db.fields.forEach(f => {
-    if (!(f.seedRate > 0) || !f.sowDate || f.sowDate.slice(0, 4) !== yr) return;
-    const key = norm(f.variety || f.crop || ''), sas = db.items.filter(x => x.kind === 'sa'), g = sas.find(x => key && (norm(x.name).indexOf(key) >= 0 || key.indexOf(norm(x.name)) >= 0)) || sas.find(x => x.cat && norm(x.cat) === norm(f.crop || ''));
-    const pr = g ? priceOf('item:' + g.id, f.sowDate, baseCur()) : null; if (!pr) { miss.price++; return; }
-    const per = g.unit === 't' ? pr.price / 1000 : g.unit === 'dt' ? pr.price / 100 : (g.unit === 'Einheit' || g.unit === 'Sack') && kgPerEinheit(g) > 0 ? pr.price / kgPerEinheit(g) : pr.price;
+    if (!(f.seedRate > 0) && !f.variety) return;
+    if (!f.sowDate) { if (f.seedRate > 0) miss.date++; return; }
+    if (f.sowDate.slice(0, 4) !== yr) return;
+    if (!(f.seedRate > 0)) { miss.rate++; return; }
+    const key = norm(f.variety || ''), sas = db.items.filter(x => x.kind === 'sa'), fc = norm(f.crop || '');
+    const g = sas.find(x => key && norm(x.name) === key) || sas.find(x => key && (norm(x.name).indexOf(key) >= 0 || key.indexOf(norm(x.name)) >= 0)) || sas.find(x => x.cat && fc && (norm(x.cat) === fc || fc.indexOf(norm(x.cat)) >= 0));
+    if (!g) { miss.price++; return; }
+    let pr = priceOf('item:' + g.id, f.sowDate, baseCur()); if (!pr) pr = priceOf('item:' + g.id, '9999-12-31', baseCur());
+    const price = pr ? pr.price : (g.price > 0 ? g.price : 0); if (!(price > 0)) { miss.price++; return; }
+    const kgE = kgPerEinheit(g), per = g.unit === 't' ? price / 1000 : g.unit === 'dt' ? price / 100 : g.unit === 'kg' ? price : (g.unit === 'Einheit' || g.unit === 'Sack') && kgE > 0 ? price / kgE : price;
     rows[f.id].seed += f.seedRate * (f.ha || 0) * per;
   });
   try { dieselByField(yr).rows.forEach(d => { if (d.fieldId && rows[d.fieldId]) rows[d.fieldId].diesel += d.cost || 0; }); } catch (e) { /* ohne Diesel */ }
@@ -5376,7 +5382,7 @@ VIEWS.auswertung = function () {
   h += '<div class="tablewrap"><table><thead><tr><th>' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</th>' + cols.map(c => '<th class="num">' + (c[0] === 'perha' ? sym + ' pro ha' : c[1]) + '</th>').join('') + '</tr></thead><tbody>';
   t.list.forEach(r => { h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td>' + cols.map(c => '<td class="num">' + (c[0] === 'sum' ? '<b>' + fm(r, c) + '</b>' : fm(r, c)) + '</td>').join('') + '</tr>'; });
   h += '<tr class="sum"><td><b>Gesamt</b></td>' + cols.map(c => '<td class="num"><b>' + fm(t.tot, c) + '</b></td>').join('') + '</tr></tbody></table></div>';
-  if (t.miss.wage || t.miss.price) h += '<p class="hint">Hinweis: ' + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0.' : '') + '</p>';
+  if (t.miss.wage || t.miss.price || t.miss.date || t.miss.rate) h += '<p class="hint">Hinweis: ' + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0. ' : '') + (t.miss.date ? t.miss.date + ' Schläge mit Saatmenge, aber ohne Aussaatdatum, sind beim Saatgut nicht enthalten. ' : '') + (t.miss.rate ? t.miss.rate + ' Schläge mit Sorte und Aussaatdatum, aber ohne Saatmenge, zählen beim Saatgut mit 0.' : '') + '</p>';
   return h + '</section></div>';
 };
 
@@ -7089,7 +7095,7 @@ ensureGps();
 render();
 (function(){ const cs = $('curSel'); if (cs) { cs.value = dispCur(); cs.onchange = () => { db.gdCur = cs.value === 'CZK' ? 'CZK' : 'EUR'; save(); render(); fxRefresh(false); }; } })();
 (function(){ const ls = $('langSel'); if (ls) { ls.value = window.__lang || 'de'; ls.onchange = () => { save(); window.__setLang(ls.value); }; } })();
-window.__app = { deriveJob, stockOf, save, deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
+window.__app = { evalData, deriveJob, stockOf, save, deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
 })();
 </script>
 </body>

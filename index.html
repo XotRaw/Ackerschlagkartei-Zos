@@ -4673,7 +4673,7 @@ function workBlock(getYear) {
   return { fields: fl, change, refresh, validate, data, start, isSaat };
 }
 function regView() {
-  let h = '<section class="card"><div class="cardhead"><h2>Zulassung (CZ)</h2></div>';
+  let h = '<section class="card"><div class="cardhead"><h2>Zulassung (CZ)</h2><button class="small" data-act="lagerTab" data-tab="ps">← Zurück zu Pflanzenschutz</button></div>';
   if (regState === 'err') return h + '<p class="empty">Die Zulassungsliste konnte nicht geladen werden.</p><p><button class="small primary" data-act="regRetry">Erneut laden</button></p></section>';
   if (!REG) return h + '<p class="empty">Zulassungsliste wird geladen …</p></section>';
   const fns = Array.from(new Set(REG.p.flatMap(p => p.f.split(/,\s*/)).filter(Boolean))).sort(), fn = ui.regFn || '';
@@ -4971,7 +4971,7 @@ function infoOpen(pid, crop) { infoState = { pid, crop: crop || '' }; ensureReg(
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { const m = document.getElementById('infoModal'); if (m) m.hidden = true; } });
 function lagerTabs() {
   const t = [];
-  if (can('ps_stock') || can('ps_move')) { t.push(['ps', 'Pflanzenschutz']); t.push(['reg', 'Zulassung (CZ)']); }
+  if (can('ps_stock') || can('ps_move')) { t.push(['ps', 'Pflanzenschutz']); }
   if (can('du_stock') || can('du_move')) { t.push(['du', 'Dünger']); t.push(['sa', 'Saatgut']); }
   if (can('grain_stock') || can('grain_load')) t.push(['gr', 'Getreide']);
   if (t.length) t.push(['hallen', 'Hallen']);
@@ -4994,7 +4994,7 @@ function catalogView(K) {
   if (ui.lagerCrop) items = items.filter(i => cropMatch(i, ui.lagerCrop));
   const ci = i => { const x = cats.indexOf(i.cat || 'Sonstiges'); return x < 0 ? 99 : x; };
   items.sort((a, b) => ci(a) - ci(b) || a.name.localeCompare(b.name, 'de'));
-  let h = '<section class="card"><div class="cardhead"><h2>' + K.l + '</h2>' + (edit && K.k === 'du' ? '<button class="small" data-act="duPreset">Düngerarten aus Liste</button> ' : '') + (edit && K.k === 'ps' && !(db.imp && db.imp.einkauf26) ? '<button class="small" data-act="impEinkauf">Einkaufsliste 2026 übernehmen</button> ' : '') + (edit ? '<button class="small primary" data-act="itemNew" data-kind="' + K.k + '">Artikel anlegen</button>' : '') + '</div>';
+  let h = '<section class="card"><div class="cardhead"><h2>' + K.l + '</h2>' + (edit && K.k === 'du' ? '<button class="small" data-act="duPreset">Düngerarten aus Liste</button> ' : '') + (edit && K.k === 'ps' && !(db.imp && db.imp.einkauf26) ? '<button class="small" data-act="impEinkauf">Einkaufsliste 2026 übernehmen</button> ' : '') + (edit ? '<button class="small primary" data-act="itemNew" data-kind="' + K.k + '">Artikel anlegen</button> ' : '') + (K.k === 'ps' ? '<button class="small" data-act="lagerTab" data-tab="reg">Zulassung (CZ)</button>' : '') + '</div>';
   h += (prices ? '<p class="hint" style="margin:0 0 6px">Währung: oben rechts umschaltbar · Kurs 1 € = ' + fmt(db.fx.rate, 2) + ' Kč</p>' : '') + '<div class="filter"><label>Gruppe<select data-ui="lagerCat"><option value="">Alle</option>' + cats.map(c => '<option' + (ui.lagerCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label><label>Zugelassen / geeignet für<select data-ui="lagerCrop"><option value="">Alle Kulturen</option>' + Object.keys(known).map(c => '<option' + (ui.lagerCrop === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
   if (!items.length) h += '<p class="empty">Keine Artikel in dieser Ansicht.' + (edit ? '' : ' Das Büro oder der Betriebsleiter legt sie an.') + '</p>';
   else {
@@ -5057,10 +5057,10 @@ function hallsView() {
 }
 VIEWS.lager = function () {
   const tabs = lagerTabs(); if (!tabs.length) return '<div class="page"><p class="empty">Kein Zugriff.</p></div>';
-  if (!tabs.some(t => t[0] === ui.lagerTab)) ui.lagerTab = tabs[0][0];
+  if (!tabs.some(t => t[0] === ui.lagerTab) && !(ui.lagerTab === 'reg' && tabs.some(t => t[0] === 'ps'))) ui.lagerTab = tabs[0][0];
   if (ui.lagerTab === 'reg' || ui.lagerTab === 'ps') ensureReg();
   if (!ui._fxl) { ui._fxl = 1; fxRefresh(false); }
-  let h = '<div class="page"><div class="chips">' + tabs.map(t => '<button class="' + (t[0] === ui.lagerTab ? 'on' : '') + '" data-act="lagerTab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>';
+  let h = '<div class="page"><div class="chips">' + tabs.map(t => '<button class="' + (t[0] === ui.lagerTab || (t[0] === 'ps' && ui.lagerTab === 'reg') ? 'on' : '') + '" data-act="lagerTab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>';
   h += ui.lagerTab === 'reg' ? regView() : ui.lagerTab === 'gr' ? grainView() : ui.lagerTab === 'hallen' ? hallsView() : catalogView(KINDS.find(k => k.k === ui.lagerTab));
   return h + '</div>';
 };
@@ -5237,12 +5237,11 @@ VIEWS.grunddaten = function () {
   db.items.filter(i => i.kind === 'du').sort((a, b) => a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: i.name, unit: i.unit, group: 'Dünger', item: i }));
   db.items.filter(i => i.kind === 'ps').sort((a, b) => a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: i.name, unit: i.unit, group: 'Pflanzenschutz', item: i }));
   db.items.filter(i => i.kind === 'sa').sort((a, b) => String(a.cat || '').localeCompare(String(b.cat || ''), 'de') || a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: (i.cat ? i.cat + ' · ' : '') + i.name, unit: i.unit, group: 'Saatgut', item: i }));
-  let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Grunddaten: Preise</h2>' + (edit ? '<button class="small primary" data-act="gdNew">Ware hinzufügen</button>' : '') + '</div>';
+  const tab = GD_TABS.find(t => t[0] === ui.gdTab) || GD_TABS[0];
+  let h = '<div class="page">' + gdTabsHtml(tab[0], rows) + '<section class="card"><div class="cardhead"><h2>Grunddaten: Preise</h2>' + (edit ? '<button class="small primary" data-act="gdNew">Ware hinzufügen</button>' : '') + '</div>';
   h += '<p class="hint">Währung: oben rechts umschaltbar. Kurs: 1 € = ' + fmt(db.fx.rate, 2) + ' Kč · ' + (db.fx.date ? 'Stand ' + dateDE(db.fx.date) + ' (' + esc(db.fx.src || 'EZB') + (db.fx.manual ? ', von Hand' : '') + ')' : 'Standardwert, noch nicht aktuell') + ' <button class="small" data-act="fxRefresh">Aktualisieren</button> <button class="small" data-act="fxManual">Von Hand</button></p>';
   h += '<p class="hint">Hier stehen die Preise, mit denen gerechnet wird. Bei einer Änderung „Neuer Preis“ mit Datum eintragen: Der alte Preis bleibt im Verlauf erhalten. Das Jahresmittel gewichtet jeden Preis nach den Tagen, die er gegolten hat. Beim Verkauf (Getreide) zählt der höchste Preis als bester, beim Einkauf der niedrigste.</p>';
   h += '<div class="filter"><label>Jahr für die Auswertung<select data-ui="gdYear">' + Object.keys(years).sort().reverse().map(y => '<option' + (y === yr ? ' selected' : '') + '>' + y + '</option>').join('') + '</select></label></div>';
-  const tab = GD_TABS.find(t => t[0] === ui.gdTab) || GD_TABS[0];
-  h += gdTabsHtml(tab[0], rows);
   if (!rows.some(r => tab[1].indexOf(r.group) >= 0)) h += '<p class="empty">In diesem Ordner ist noch nichts eingetragen.</p>';
   const groups = tab[1];
   groups.forEach(g => {
@@ -6458,7 +6457,7 @@ function itemDialog(K, it, preset) {
   }
   f.push({ k: 'hall', label: 'Lager / Halle', type: 'select', opts: hallOpts('– keine Angabe –'), v: it.hallId || '' });
   f.push({ k: 'note', label: 'Notiz', type: 'textarea', v: it.note || '' });
-  if (!isNew && !gr && can(K.move) && !ro()) f.push({ k: 'stockNow', label: 'Bestand (' + it.unit + ') – zum Korrigieren einfach ändern', type: 'number', step: 'any', v: round2(stockOf(it.id)), hint: 'Die Differenz wird als „Bestandskorrektur“ ins Lagerbuch gebucht.' });
+  if (!isNew && can(K.move) && !ro()) f.push({ k: 'stockNow', label: 'Bestand (' + it.unit + ') – zum Korrigieren einfach ändern', type: 'number', step: 'any', v: round2(stockOf(it.id)), hint: 'Die Differenz wird als „Bestandskorrektur“ ins Lagerbuch gebucht.' });
   if (isNew) f.push({ k: 'start', label: 'Anfangsbestand', type: 'number', step: 'any', min: 0, hint: 'Optional. Wird als erste Einlagerung gebucht.' });
   dialog(isNew ? K.l + ': Artikel anlegen' : 'Artikel bearbeiten', f, v => {
     const rec = isNew ? { id: newId(), kind: K.k } : it;
@@ -6468,7 +6467,7 @@ function itemDialog(K, it, preset) {
       else if (ps) { rec.crops = v.crops.split(/[,;]/).map(s => s.trim()).filter(Boolean).join(', '); rec.dose = num(v.dose); rec.min = num(v.min); rec.wait = num(v.wait); }
       if (du) rec.nut = nutRead(v);
       if ('price' in v) rec.price = Math.round(conv(num(v.price) || 0, v.cur || baseCur(), baseCur()) * 1000000) / 1000000; }
-    if (!isNew && !gr && v.stockNow !== undefined && v.stockNow !== '' && Math.abs(num(v.stockNow) - stockOf(rec.id)) > 0.0001) db.moves.push({ id: newId(), itemId: rec.id, date: today(), ts: Date.now(), userId: me().id, delta: round2(num(v.stockNow) - stockOf(rec.id)), fieldId: null, note: 'Bestandskorrektur', hallId: rec.hallId || null });
+    if (!isNew && v.stockNow !== undefined && v.stockNow !== '' && Math.abs(num(v.stockNow) - stockOf(rec.id)) > 0.0001) db.moves.push({ id: newId(), itemId: rec.id, date: today(), ts: Date.now(), userId: me().id, delta: round2(num(v.stockNow) - stockOf(rec.id)), fieldId: null, note: 'Bestandskorrektur', hallId: rec.hallId || null });
     if (!isNew && !gr && rec.hallId) db.moves.forEach(m => { if (m.itemId === rec.id && !m.hallId) m.hallId = rec.hallId; });
     if (isNew) {
       db.items.push(rec);

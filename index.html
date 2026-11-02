@@ -128,7 +128,7 @@
   /* Aufträge */
   .job { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); margin-bottom: 6px; }
   .job.läuft { border-color: var(--accent); }
-  .job .jmain { min-width: 0; flex: 1; } .job .jmap { cursor: pointer; } .maphint { color: var(--accent); font-size: 12px; } .jobmap { margin-top: 8px; cursor: default; } .jobmap .jm { height: 240px; border-radius: 4px; border: 1px solid var(--line); } .jobmap .jl { font-size: 12px; margin-top: 4px; }
+  .job .jmain { min-width: 0; flex: 1; } .job .jfield { font-size: 1.25rem; font-weight: 700; margin: 2px 0; } .job .jmap { cursor: pointer; } .maphint { color: var(--accent); font-size: 12px; } .jobmap { margin-top: 8px; cursor: default; } .jobmap .jm { height: 240px; border-radius: 4px; border: 1px solid var(--line); } .jobmap .jl { font-size: 12px; margin-top: 4px; }
   .clk { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); margin-left: 6px; }
   /* Karte / Schlagkartei */
   .banner { border: 1px dashed var(--accent); border-radius: 4px; padding: 10px; background: var(--bg); }
@@ -3014,6 +3014,7 @@ function doText(n) {
   if (pt === 'SCRIPT' || pt === 'STYLE' || pt === 'TEXTAREA') return;
   var v = n.data;
   if (mine.get(n) === v) return;
+  if (pt === 'OPTION' && !n.parentNode.hasAttribute('value')) n.parentNode.setAttribute('value', v.trim().replace(/\s+/g, ' '));
   var o = tr(v);
   mine.set(n, o);
   if (o !== v) n.data = o;
@@ -3119,6 +3120,7 @@ const FUNCS = [
 const KINDS = [
   { k: 'ps', l: 'Pflanzenschutz', stock: 'ps_stock', move: 'ps_move', unit: 'l', entry: 'Pflanzenschutz' },
   { k: 'du', l: 'Dünger', stock: 'du_stock', move: 'du_move', unit: 'kg', entry: 'Düngung' },
+  { k: 'sa', l: 'Saatgut', stock: 'du_stock', move: 'du_move', unit: 'dt', entry: null },
   { k: 'gr', l: 'Getreide', stock: 'grain_stock', move: 'grain_stock', unit: 't', entry: null }
 ];
 const TYPE_L = { Hof: 'Hofbetrieb', Werkstatt: 'Werkstatt', Büro: 'Büro', Halle: 'Halle', Lager: 'Lager', Spritzenlager: 'Spritzenlager', Stall: 'Stall', Pause: 'Pause', Feld: 'Feld', Fahrweg: 'Fahrweg', Unbekannt: 'Keine Ortung', Unterbrochen: 'Ortung unterbrochen', Manuell: 'Manuell korrigiert' };
@@ -3171,6 +3173,16 @@ function migrate(src) {
     d.gd = [['Weizen', 'Getreide / Verkauf', 't'], ['Gerste', 'Getreide / Verkauf', 't'], ['Raps', 'Getreide / Verkauf', 't'], ['Roggen', 'Getreide / Verkauf', 't'], ['Hafer', 'Getreide / Verkauf', 't'], ['Mais', 'Getreide / Verkauf', 't'], ['Diesel', 'Betriebsstoffe', 'l']]
       .map((a, i) => ({ id: 'gd' + i, name: a[0], group: a[1], unit: a[2], kind: a[0] === 'Diesel' ? 'diesel' : '' }));
   }
+  (function () {
+    d.gd.filter(r => r.group === 'Saatgut').forEach(r => {
+      if (!d.items.some(i => i.id === r.id)) d.items.push({ id: r.id, kind: 'sa', name: r.name, cat: r.crop || 'Sonstiges', crops: r.crop || '', unit: r.unit || 'dt', hallId: null, note: '' });
+      if (d.priceHist[r.id]) { d.priceHist['item:' + r.id] = (d.priceHist['item:' + r.id] || []).concat(d.priceHist[r.id]); delete d.priceHist[r.id];
+        const l = d.priceHist['item:' + r.id].slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0]; const it = d.items.find(i => i.id === r.id); if (it && l) it.price = l.price; }
+    });
+    d.gd = d.gd.filter(r => r.group !== 'Saatgut');
+    (d.varieties || []).forEach(v => { if (!d.items.some(i => i.kind === 'sa' && i.name === v.name)) d.items.push({ id: 'sa' + v.id, kind: 'sa', name: v.name, cat: v.crop || 'Sonstiges', crops: v.crop || '', unit: 'dt', seedRate: v.rate || 0, hallId: null, note: '' }); });
+    d.varieties = [];
+  })();
   FUNCS.forEach(f => {
     d.perms[f.k] = d.perms[f.k] || {};
     ROLES.forEach(r => { if (d.perms[f.k][r.k] === undefined) d.perms[f.k][r.k] = f.d.indexOf(r.k) >= 0; });
@@ -3905,18 +3917,19 @@ function fillCropForm() {
   $('cfVar').value = f.variety || ''; $('cfTill').value = f.tillage || ''; $('cfDrill').value = f.drill || ''; refreshLists(); $('cfSow').value = f.sowDate || ''; $('cfSeed').value = f.seedRate == null ? '' : f.seedRate; $('cfEntry').checked = false;
 }
 const WORK_RE = /pflüg|pflug|grubb|egg|kreisel|säen|saat|drill|walz|fräs|mulch|striegel|bodenbearb/i;
-function refreshVarList(crop) { $('varList').innerHTML = (db.varieties || []).filter(v => !crop || !v.crop || v.crop === crop).map(v => '<option value="' + esc(v.name) + '">').join(''); }
+const seedItems = crop => db.items.filter(i => i.kind === 'sa' && (!crop || !i.cat || i.cat === crop));
+function refreshVarList(crop) { $('varList').innerHTML = seedItems(crop).map(v => '<option value="' + esc(v.name) + '">').join(''); }
 function refreshLists() {
   const crop = $('cfCrop').value, opt = a => a.map(x => '<option value="' + esc(x) + '">').join('');
-  $('varList').innerHTML = opt((db.varieties || []).filter(v => !crop || !v.crop || v.crop === crop).map(v => v.name));
+  $('varList').innerHTML = opt(seedItems(crop).map(v => v.name));
   $('tillList').innerHTML = opt(db.lists.tillage);
   $('drillList').innerHTML = opt(db.lists.drill.concat(db.machines.filter(m => IMPL.indexOf(m.kind) >= 0).map(m => m.name)));
 }
 $('cfCrop').addEventListener('change', refreshLists);
 $('mfCrop').addEventListener('change', () => { refreshVarList($('mfCrop').value); renderKartei(); });
 $('cfVar').addEventListener('change', () => {
-  const v = (db.varieties || []).find(x => x.name === $('cfVar').value.trim() && (!x.crop || x.crop === $('cfCrop').value));
-  if (v && v.rate && !$('cfSeed').value) $('cfSeed').value = v.rate;
+  const v = seedItems($('cfCrop').value).find(x => x.name === $('cfVar').value.trim());
+  if (v && v.seedRate && !$('cfSeed').value) $('cfSeed').value = v.seedRate;
 });
 function workHtml(f) {
   const rows = [];
@@ -4110,6 +4123,13 @@ function deriveJob(j) {
   if (j.variety || j.seedRate > 0) { if (j.variety) f.variety = j.variety; if (j.seedRate > 0) f.seedRate = j.seedRate; f.sowDate = date; }
   const e = { id: newId(), fieldId: j.fieldId, date, type: 'Arbeit', name: j.title, amount: round2(hrs(j.endedAt - j.startedAt)), unit: 'h', ha: haW, note: [machines, j.note].filter(Boolean).join(' · '), userId: j.userId, jobId: j.id };
   db.entries.push(e); j.entryId = e.id;
+  if (j.variety && j.seedRate > 0) {
+    const sit = db.items.find(i => i.kind === 'sa' && i.name === j.variety && (!i.cat || !f.crop || i.cat === f.crop)) || db.items.find(i => i.kind === 'sa' && i.name === j.variety);
+    if (sit) {
+      const kg = j.seedRate * haW, amt = round2(sit.unit === 'dt' ? kg / 100 : sit.unit === 't' ? kg / 1000 : sit.unit === 'kg' ? kg : j.seedRate * haW);
+      if (amt > 0) db.moves.push({ id: newId(), itemId: sit.id, date, ts: Date.now(), userId: j.userId, delta: -amt, fieldId: j.fieldId, note: 'Aussaat: ' + j.title, jobId: j.id, hallId: sit.hallId || null });
+    }
+  }
   jobLines(j).forEach(l => {
     const it = l.it, dose = l.dose;
     if (!(dose > 0)) return;
@@ -4118,9 +4138,9 @@ function deriveJob(j) {
     db.moves.push({ id: newId(), itemId: it.id, date, ts: Date.now(), userId: j.userId, delta: -amount, fieldId: j.fieldId, note: 'Auftrag: ' + j.title, jobId: j.id, hallId: it.hallId || null });
   });
 }
-function jobSub(j) {
+function jobSub(j, noField) {
   const ls = jobLines(j);
-  return [j.fieldId ? fName(j.fieldId) : null, j.variety || j.seedRate > 0 ? [j.variety ? 'Sorte ' + j.variety : null, j.seedRate > 0 ? fmt(j.seedRate, 1) + ' kg/ha' : null].filter(Boolean).join(', ') : null, [j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ') || null, ls.length ? ls.map(l => l.it.name + (l.dose ? ' ' + fmt(l.dose, 2) + ' ' + l.it.unit + '/ha' : '')).join(' + ') : null, j.date ? dateDE(j.date) : null].filter(Boolean).map(esc).join(' · ');
+  return [j.fieldId && !noField ? fName(j.fieldId) : null, j.variety || j.seedRate > 0 ? [j.variety ? 'Sorte ' + j.variety : null, j.seedRate > 0 ? fmt(j.seedRate, 1) + ' kg/ha' : null].filter(Boolean).join(', ') : null, [j.tractorId ? mName(j.tractorId) : null, j.implId ? mName(j.implId) : null].filter(Boolean).join(' + ') || null, ls.length ? ls.map(l => l.it.name + (l.dose ? ' ' + fmt(l.dose, 2) + ' ' + l.it.unit + '/ha' : '')).join(' + ') : null, j.date ? dateDE(j.date) : null].filter(Boolean).map(esc).join(' · ');
 }
 function jobCard(j) {
   const mine = j.userId === me().id && !ro();
@@ -4129,7 +4149,7 @@ function jobCard(j) {
   if (mine && j.status === 'läuft') btn = '<button data-act="jobPause" data-id="' + j.id + '">⏸ Pause</button><button class="primary" data-act="jobFinish" data-id="' + j.id + '">Fertig</button>';
   const clk = j.status === 'läuft' ? '<span class="clk" data-since="' + j.startedAt + '">' + hms(Date.now() - j.startedAt) + '</span>' : '';
   const fl = j.fieldId && j.status !== 'erledigt' ? '<div class="sub fl">' + fieldLinks(fieldById(j.fieldId)) + '</div>' : '';
-  return '<div class="job ' + j.status + '"><div class="jmain' + (j.fieldId ? ' jmap' : '') + '"' + (j.fieldId ? ' data-act="jobMap" data-id="' + j.id + '"' : '') + '><div><b>' + esc(j.title) + '</b> <span class="tag ' + stCls(j.status) + '">' + JS_L(j.status) + '</span>' + clk + '</div><div class="sub">' + jobSub(j) + '</div>' + (j.donePct > 0 && j.status !== 'erledigt' ? '<div class="sub"><span class="tag soon">' + pctTxt(j.donePct) + ' fertig</span> ' + (fieldById(j.fieldId) && fieldById(j.fieldId).ha > 0 ? fmt(fieldById(j.fieldId).ha * j.donePct / 100, 2) + ' von ' + fmt(fieldById(j.fieldId).ha, 2) + ' ha bearbeitet, ' : '') + 'Rest offen.</div>' : '') + (j.note ? '<div class="sub">' + esc(j.note) + '</div>' : '') + fl + (j.fieldId ? '<div class="sub maphint">' + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '▲ Karte schließen' : '🗺 Karte anzeigen') + '</div>' : '') + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '<div class="jobmap-ph" data-id="' + j.id + '"></div>' : '') + '</div><div class="tools">' + btn + '</div></div>';
+  return '<div class="job ' + j.status + '"><div class="jmain' + (j.fieldId ? ' jmap' : '') + '"' + (j.fieldId ? ' data-act="jobMap" data-id="' + j.id + '"' : '') + '><div><b>' + esc(j.title) + '</b> <span class="tag ' + stCls(j.status) + '">' + JS_L(j.status) + '</span>' + clk + '</div>' + (j.fieldId ? '<div class="jfield">' + esc(fName(j.fieldId)) + '</div>' : '') + '<div class="sub">' + jobSub(j, true) + '</div>' + (j.donePct > 0 && j.status !== 'erledigt' ? '<div class="sub"><span class="tag soon">' + pctTxt(j.donePct) + ' fertig</span> ' + (fieldById(j.fieldId) && fieldById(j.fieldId).ha > 0 ? fmt(fieldById(j.fieldId).ha * j.donePct / 100, 2) + ' von ' + fmt(fieldById(j.fieldId).ha, 2) + ' ha bearbeitet, ' : '') + 'Rest offen.</div>' : '') + (j.note && String(j.note).replace(/^Rest, ab [\d.,]+ % fertig\.\s*/, '') ? '<div class="sub">' + esc(String(j.note).replace(/^Rest, ab [\d.,]+ % fertig\.\s*/, '')) + '</div>' : '') + fl + (j.fieldId ? '<div class="sub maphint">' + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '▲ Karte schließen' : '🗺 Karte anzeigen') + '</div>' : '') + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '<div class="jobmap-ph" data-id="' + j.id + '"></div>' : '') + '</div><div class="tools">' + btn + '</div></div>';
 }
 const JS_L = s => JOB_ST[s] || s;
 
@@ -4493,7 +4513,7 @@ function fuelDialog(f, presetMachine) {
 }
 /* ---------- Lager ---------- */
 const PS_CATS = ['Herbizid', 'Fungizid', 'Insektizid', 'Wachstumsregler', 'Molluskizid', 'Beizmittel', 'Netzmittel / Zusatzstoff', 'Sonstiges'];
-const DU_CATS = ['Stickstoff (N)', 'Mehrnährstoff (NPK)', 'Phosphor / Kalium', 'Kalk', 'Organisch', 'Blattdünger', 'Sonstiges'];
+const DU_CATS = ['Stickstoff (N)', 'Mehrnährstoff (NPK)', 'Phosphor / Kalium', 'Magnesium / Schwefel', 'Spurenelemente', 'Kalk', 'Organisch', 'Blattdünger', 'Sonstiges'];
 const HALL_KINDS = ['Allgemein', 'Getreide', 'Dünger', 'Pflanzenschutz'];
 const stockOf = (id, hall) => db.moves.filter(m => m.itemId === id && (hall === undefined || (m.hallId || '') === hall)).reduce((a, m) => a + m.delta, 0);
 const hallName = id => { const x = db.halls.find(q => q.id === id); return x ? x.name : '–'; };
@@ -4589,7 +4609,13 @@ function workBlock(getYear) {
     fl.push({ k: 'item' + n, label: 'Mittel ' + n + ' der Mischung', type: 'select', info: true, opts: [{ v: '', l: '– kein Mittel –' }], optsFn: iopts, deps: ['impl', 'fields'], showIf: (v => isPs(v) && (n === 2 || v['item' + (n - 1)]) && !!v.item) });
     fl.push({ k: 'dose' + n, label: 'Aufwandmenge ' + n + ' pro ha', type: 'number', step: 'any', min: 0, showIf: (v => isPs(v) && !!v['item' + n]) });
   }
-  fl.push({ k: 'variety', label: 'Sorte', list: 'varList', showIf: isSaat });
+  const seedOpts = v => {
+    const cr = cropV(v), l = db.items.filter(i => i.kind === 'sa' && stockOf(i.id) > 0 && (!cr || !i.cat || i.cat === cr)).sort((a, b) => a.name.localeCompare(b.name, 'de')).map(i => ({ v: i.name, l: i.name + ' (Lager: ' + fmt(stockOf(i.id), 2) + ' ' + i.unit + ')' }));
+    const cur = (v.variety || '').trim(); if (cur && !l.some(o => o.v === cur)) l.push({ v: cur, l: cur + ' (nicht im Lager)' });
+    return [{ v: '', l: l.length ? '– Sorte aus dem Lager wählen –' : '– keine Sorte im Lager –' }].concat(l);
+  };
+  fl.push({ k: 'variety', label: 'Sorte (nur aus dem Lagerbestand)', type: 'select', opts: [{ v: '', l: '– Sorte aus dem Lager wählen –' }], optsFn: seedOpts, deps: ['fields', 'impl'], showIf: isSaat });
+  fl.push({ k: 'varnote', type: 'note', showIf: v => isSaat(v) && seedOpts(v).length < 2 });
   fl.push({ k: 'seedRate', label: 'Saatmenge in kg/ha', type: 'number', step: 'any', min: 0, showIf: isSaat });
   const rowsOf = v => { const r = []; for (let n = 1; n <= MIX_MAX; n++) { const id = n === 1 ? v.item : v['item' + n]; if (id) { const it = db.items.find(i => i.id === id); if (it) r.push({ it, dose: num(n === 1 ? v.dose : v['dose' + n]) || it.dose || 0, n }); } } return r; };
   const reasonOf2 = v => (v.reason === '__other' ? (v.reasonTxt || '').trim() : v.reason || '');
@@ -4609,8 +4635,9 @@ function workBlock(getYear) {
     });
     return out.join('<br>');
   };
-  const refresh = v => { const n = $('df_mnote'); if (n && !n.closest('.dnote').hidden) n.innerHTML = noteHtml(v); };
+  const refresh = v => { const n = $('df_mnote'); if (n && !n.closest('.dnote').hidden) n.innerHTML = noteHtml(v); const vn = $('df_varnote'); if (vn) vn.textContent = 'Für diese Frucht ist kein Saatgut im Lager. Bitte zuerst unter Lager → Saatgut einlagern.'; };
   const validate = v => {
+    if (isSaat(v) && !(v.variety || '').trim()) return 'Bitte die Sorte aus dem Lagerbestand wählen. Ist keine da, zuerst unter Lager → Saatgut einlagern.';
     if (!isMit(v) || !v.item) return null;
     const rs = rowsOf(v);
     if (isPs(v)) {
@@ -4624,7 +4651,7 @@ function workBlock(getYear) {
   const change = (k, vals, set) => {
     if (k === 'item') { const it = db.items.find(i => i.id === vals.item); set('dose', it && it.dose ? it.dose : ''); }
     const mm = /^item(\d)$/.exec(k); if (mm) { const it2 = db.items.find(i => i.id === vals[k]); set('dose' + mm[1], it2 && it2.dose ? it2.dose : ''); }
-    if (k === 'variety') { const vr = (db.varieties || []).find(x => x.name === vals.variety.trim()); if (vr && vr.rate) set('seedRate', vr.rate); }
+    if (k === 'variety') { const vr = db.items.find(x => x.kind === 'sa' && x.name === (vals.variety || '').trim()); if (vr && vr.seedRate) set('seedRate', vr.seedRate); }
     setTimeout(() => refresh(dlgVals()), 0);
   };
   const start = () => { ensureReg(); refreshVarList(''); const t = setInterval(() => { if (!$('dlg').open) { clearInterval(t); return; } if (REG) { clearInterval(t); refresh(dlgVals()); } }, 400); };
@@ -4930,7 +4957,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { const m = 
 function lagerTabs() {
   const t = [];
   if (can('ps_stock') || can('ps_move')) { t.push(['ps', 'Pflanzenschutz']); t.push(['reg', 'Zulassung (CZ)']); }
-  if (can('du_stock') || can('du_move')) t.push(['du', 'Dünger']);
+  if (can('du_stock') || can('du_move')) { t.push(['du', 'Dünger']); t.push(['sa', 'Saatgut']); }
   if (can('grain_stock') || can('grain_load')) t.push(['gr', 'Getreide']);
   if (t.length) t.push(['hallen', 'Hallen']);
   return t;
@@ -4945,7 +4972,7 @@ function movesTable(ids) {
 }
 function catalogView(K) {
   const cc = db.gdCur || baseCur(), lm = n => fmt(conv(n, baseCur(), cc), 2) + ' ' + curSym(cc), seeStock = can(K.stock), canMove = can(K.move) && !ro(), prices = can('prices'), edit = canW('edit');
-  const cats = K.k === 'ps' ? PS_CATS : DU_CATS;
+  const cats = K.k === 'ps' ? PS_CATS : K.k === 'sa' ? SEED_CROPS : DU_CATS;
   let items = db.items.filter(i => i.kind === K.k);
   const known = {}; CROPS.forEach(c => { known[c] = 1; }); items.forEach(i => String(i.crops || '').split(/[,;]/).map(s => s.trim()).filter(Boolean).forEach(c => { known[c] = 1; }));
   if (ui.lagerCat) items = items.filter(i => (i.cat || 'Sonstiges') === ui.lagerCat);
@@ -4957,12 +4984,12 @@ function catalogView(K) {
   if (!items.length) h += '<p class="empty">Keine Artikel in dieser Ansicht.' + (edit ? '' : ' Das Büro oder der Betriebsleiter legt sie an.') + '</p>';
   else {
     let last = null, sum = 0, cols = 4 + (prices ? 1 : 0) + (seeStock ? 1 : 0) + (prices && seeStock ? 1 : 0);
-    h += '<div class="tablewrap"><table><thead><tr><th>Artikel</th><th>Kulturen</th><th class="num">Aufwand/ha</th><th>Lager</th>' + (prices ? '<th class="num">Preis</th>' : '') + (seeStock ? '<th class="num">Bestand</th>' : '') + (prices && seeStock ? '<th class="num">Wert</th>' : '') + '<th></th></tr></thead><tbody>';
+    h += '<div class="tablewrap"><table><thead><tr><th>Artikel</th><th>' + (K.k === 'sa' ? 'Frucht' : 'Kulturen') + '</th><th class="num">' + (K.k === 'sa' ? 'Saatmenge/ha' : 'Aufwand/ha') + '</th><th>Lager</th>' + (prices ? '<th class="num">Preis</th>' : '') + (seeStock ? '<th class="num">Bestand</th>' : '') + (prices && seeStock ? '<th class="num">Wert</th>' : '') + '<th></th></tr></thead><tbody>';
     items.forEach(i => {
       const c = i.cat || 'Sonstiges', st = stockOf(i.id), val = Math.max(0, st) * (i.price || 0);
       if (c !== last) { h += '<tr class="group"><td colspan="' + (cols + 1) + '">' + esc(c) + '</td></tr>'; last = c; }
       sum += val;
-      h += '<tr><td><b class="lnk" data-act="itemInfo" data-id="' + i.id + '" title="Infotafel">' + esc(i.name) + (K.k === 'ps' ? ' ⓘ' : '') + '</b>' + (i.wait ? '<div class="sub">Wartezeit ' + i.wait + ' Tage</div>' : '') + (i.note ? '<div class="sub">' + esc(i.note) + '</div>' : '') + '</td><td>' + esc(i.crops || '–') + '</td><td class="num">' + (i.dose ? fmt(i.dose, 2) + ' ' + esc(i.unit) : '–') + '</td><td>' + (i.hallId ? esc(hallName(i.hallId)) : '–') + '</td>' +
+      h += '<tr><td><b class="lnk" data-act="itemInfo" data-id="' + i.id + '" title="Infotafel">' + esc(i.name) + (K.k === 'ps' ? ' ⓘ' : '') + '</b>' + (i.wait ? '<div class="sub">Wartezeit ' + i.wait + ' Tage</div>' : '') + (i.nut && nutTxt(i.nut) ? '<div class="sub">' + esc(nutTxt(i.nut)) + '</div>' : '') + (i.note ? '<div class="sub">' + esc(i.note) + '</div>' : '') + '</td><td>' + esc(i.crops || '–') + '</td><td class="num">' + (K.k === 'sa' ? (i.seedRate ? fmt(i.seedRate, 1) + ' kg' : '–') : i.dose ? fmt(i.dose, 2) + ' ' + esc(i.unit) : '–') + '</td><td>' + (i.hallId ? esc(hallName(i.hallId)) : '–') + '</td>' +
         (prices ? '<td class="num">' + (i.price ? lm(i.price) + '/' + esc(i.unit) : '–') + '</td>' : '') +
         (seeStock ? '<td class="num' + (st < 0 ? ' neg' : '') + '">' + fmt(st, 2) + ' ' + esc(i.unit) + (i.min > 0 && st < i.min ? '<div><span class="tag warn">unter Mindestbestand</span></div>' : '') + '</td>' : '') +
         (prices && seeStock ? '<td class="num">' + (i.price ? lm(val) : '–') + '</td>' : '') +
@@ -4975,7 +5002,7 @@ function catalogView(K) {
   return h + '</section>';
 }
 function grainView() {
-  const K = KINDS[2], seeStock = can('grain_stock'), canMove = can('grain_stock') && !ro(), load = can('grain_load') && !ro(), edit = canW('edit');
+  const K = KINDS.find(k => k.k === 'gr'), seeStock = can('grain_stock'), canMove = can('grain_stock') && !ro(), load = can('grain_load') && !ro(), edit = canW('edit');
   const items = db.items.filter(i => i.kind === 'gr');
   let h = '<section class="card"><div class="cardhead"><h2>Getreide</h2><div class="tools">' + (load ? '<button class="primary small" data-act="loadNew">Ladung wiegen</button>' : '') + (edit ? '<button class="small" data-act="itemNew" data-kind="gr">Artikel anlegen</button>' : '') + '</div></div>';
   const open = db.loads.filter(l => l.status === 'unterwegs' && (seeStock || edit || l.userId === me().id));
@@ -5183,17 +5210,18 @@ function gdChart(st) {
   path += 'H' + X(st.end).toFixed(1);
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="max-width:340px;height:70px" role="img" aria-label="Preisverlauf"><path d="' + path + '" fill="none" stroke="#4caf50" stroke-width="2"/>' + st.pts.map(q => '<circle cx="' + X(q.date).toFixed(1) + '" cy="' + Y(q.price).toFixed(1) + '" r="3" fill="#ffd23f"/>').join('') + '</svg>';
 }
-const GD_TABS = [['Getreide', ['Getreide / Verkauf']], ['Betriebsstoffe', ['Betriebsstoffe']], ['Pflanzenschutz', ['Pflanzenschutz']], ['Dünger', ['Dünger']], ['Saatgut & Sonstiges', ['Saatgut', 'Sonstiges']]];
+const GD_TABS = [['Getreide', ['Getreide / Verkauf']], ['Pflanzenschutz', ['Pflanzenschutz']], ['Dünger', ['Dünger']], ['Betriebsstoffe', ['Betriebsstoffe']], ['Saatgut', ['Saatgut']], ['Sonstiges', ['Sonstiges']]];
 function gdTabsHtml(active, rows) {
-  return '<div class="cropchips gdtabs">' + GD_TABS.map(t => '<button type="button" class="' + (t[0] === active ? 'on' : '') + '" data-act="gdTab" data-t="' + esc(t[0]) + '">' + esc(t[0]) + (rows ? ' (' + rows.filter(r => t[1].indexOf(r.group) >= 0).length + ')' : '') + '</button>').join('') + (can('mach') ? '<button type="button" class="' + (ui.tab === 'maschinen' ? 'on' : '') + '" data-act="tab" data-tab="maschinen">Maschinen</button>' : '') + '</div>';
+  return '<div class="cropchips gdtabs">' + (can('mach') ? '<button type="button" class="' + (ui.tab === 'maschinen' ? 'on' : '') + '" data-act="tab" data-tab="maschinen">Maschinen</button>' : '') + GD_TABS.map(t => '<button type="button" class="' + (t[0] === active ? 'on' : '') + '" data-act="gdTab" data-t="' + esc(t[0]) + '">' + esc(t[0]) + (rows ? ' (' + rows.filter(r => t[1].indexOf(r.group) >= 0).length + ')' : '') + '</button>').join('') + '</div>';
 }
 VIEWS.grunddaten = function () {
   const edit = canW('prices') || (can('prices') && !ro()), yr = ui.gdYear || today().slice(0, 4), dc = db.gdCur;
   const years = {}; years[today().slice(0, 4)] = 1; Object.keys(db.priceHist || {}).forEach(k => gdHist(k).forEach(e => { years[e.date.slice(0, 4)] = 1; }));
   const rows = [];
-  GD_GROUPS.forEach(g => db.gd.filter(r => r.group === g).forEach(r => rows.push({ key: r.id, name: r.name, unit: r.unit, group: g, custom: true })));
+  GD_GROUPS.forEach(g => db.gd.filter(r => r.group === g).slice().sort((a, b) => g === 'Saatgut' ? String(a.crop || '').localeCompare(String(b.crop || ''), 'de') || a.name.localeCompare(b.name, 'de') : 0).forEach(r => rows.push({ key: r.id, name: (g === 'Saatgut' && r.crop ? r.crop + ' · ' : '') + r.name, unit: r.unit, group: g, custom: true })));
   db.items.filter(i => i.kind === 'du').sort((a, b) => a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: i.name, unit: i.unit, group: 'Dünger', item: i }));
   db.items.filter(i => i.kind === 'ps').sort((a, b) => a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: i.name, unit: i.unit, group: 'Pflanzenschutz', item: i }));
+  db.items.filter(i => i.kind === 'sa').sort((a, b) => String(a.cat || '').localeCompare(String(b.cat || ''), 'de') || a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: (i.cat ? i.cat + ' · ' : '') + i.name, unit: i.unit, group: 'Saatgut', item: i }));
   let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Grunddaten: Preise</h2>' + (edit ? '<button class="small primary" data-act="gdNew">Ware hinzufügen</button>' : '') + '</div>';
   h += '<div class="tools" style="margin-bottom:6px"><button class="' + (dc === 'EUR' ? 'primary' : '') + '" data-act="gdCur" data-c="EUR">€ Euro</button><button class="' + (dc === 'CZK' ? 'primary' : '') + '" data-act="gdCur" data-c="CZK">Kč Kronen</button></div><p class="hint">Kurs: 1 € = ' + fmt(db.fx.rate, 2) + ' Kč · ' + (db.fx.date ? 'Stand ' + dateDE(db.fx.date) + ' (' + esc(db.fx.src || 'EZB') + (db.fx.manual ? ', von Hand' : '') + ')' : 'Standardwert, noch nicht aktuell') + ' <button class="small" data-act="fxRefresh">Aktualisieren</button> <button class="small" data-act="fxManual">Von Hand</button></p>';
   h += '<p class="hint">Hier stehen die Preise, mit denen gerechnet wird. Bei einer Änderung „Neuer Preis“ mit Datum eintragen: Der alte Preis bleibt im Verlauf erhalten. Das Jahresmittel gewichtet jeden Preis nach den Tagen, die er gegolten hat. Beim Verkauf (Getreide) zählt der höchste Preis als bester, beim Einkauf der niedrigste.</p>';
@@ -5208,7 +5236,7 @@ VIEWS.grunddaten = function () {
     h += '<h2 style="margin-top:14px">' + esc(g) + '</h2><div class="tablewrap"><table><thead><tr><th>Ware</th><th class="num">Aktueller Preis</th><th>seit</th><th class="num">Mittel ' + yr + '</th><th>' + (best === 'high' ? 'Höchster' : 'Niedrigster') + ' Preis ' + yr + '</th><th></th></tr></thead><tbody>';
     rs.forEach(r => {
       const c = priceOf(r.key, null, dc), cur = c ? c : (r.item && r.item.price > 0 ? { price: conv(r.item.price, baseCur(), dc), date: '' } : null), st = gdStats(r.key, yr, best, dc), open = ui.gdOpen === r.key;
-      h += '<tr><td><b>' + esc(r.name) + '</b></td><td class="num">' + (cur ? pf(cur.price, r.unit) : '–') + '</td><td>' + (cur && cur.date ? dateDE(cur.date) : '') + '</td><td class="num">' + (st ? pf(st.avg, r.unit) : '–') + '</td><td>' + (st ? pf(st.best.price, r.unit) + ' <span class="sub">(' + (st.best.date === st.y0 ? 'seit ' + dateDE(st.best.orig) : dateDE(st.best.date)) + ')</span>' : '–') + '</td><td style="white-space:nowrap">' + (edit ? '<button class="small primary" data-act="gdPrice" data-k="' + esc(r.key) + '">Neuer Preis</button> ' : '') + '<button class="small" data-act="gdOpen" data-k="' + esc(r.key) + '">' + (open ? 'Zu' : 'Verlauf') + '</button></td></tr>';
+      h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.item && r.item.nut && nutTxt(r.item.nut) ? '<div class="sub">' + esc(nutTxt(r.item.nut)) + '</div>' : '') + '</td><td class="num">' + (cur ? pf(cur.price, r.unit) : '–') + '</td><td>' + (cur && cur.date ? dateDE(cur.date) : '') + '</td><td class="num">' + (st ? pf(st.avg, r.unit) : '–') + '</td><td>' + (st ? pf(st.best.price, r.unit) + ' <span class="sub">(' + (st.best.date === st.y0 ? 'seit ' + dateDE(st.best.orig) : dateDE(st.best.date)) + ')</span>' : '–') + '</td><td style="white-space:nowrap">' + (edit ? '<button class="small primary" data-act="gdPrice" data-k="' + esc(r.key) + '">Neuer Preis</button> ' : '') + '<button class="small" data-act="gdOpen" data-k="' + esc(r.key) + '">' + (open ? 'Zu' : 'Verlauf') + '</button></td></tr>';
       if (open) {
         const hist = gdHist(r.key, dc).slice().reverse();
         h += '<tr><td colspan="6"><div class="panels"><div>' + (hist.length ? '<table><thead><tr><th>Datum</th><th class="num">Preis</th><th class="num">Änderung</th><th></th></tr></thead><tbody>' + hist.map((e, i) => { const prev = hist[i + 1], ch = prev && prev.price ? ((e.price - prev.price) / prev.price) * 100 : null; return '<tr><td>' + dateDE(e.date) + '</td><td class="num">' + pf(e.price, r.unit) + '</td><td class="num">' + (ch == null ? '' : (ch > 0 ? '+' : '') + fmt(ch, 1) + ' %') + '</td><td>' + (edit ? '<button class="small" data-act="gdDelEntry" data-k="' + esc(r.key) + '" data-date="' + e.date + '">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="hint">Noch kein Preisverlauf. Mit „Neuer Preis“ den ersten Preis eintragen.</p>') + '</div><div>' + (st && st.pts.length > 1 ? '<div class="hint">Verlauf ' + yr + '</div>' + gdChart(st) : '') + (r.custom && edit && !r.item ? '<div style="margin-top:8px"><button class="small danger" data-act="gdDelRow" data-k="' + esc(r.key) + '">Ware entfernen</button></div>' : '') + '</div></div></td></tr>';
@@ -5258,8 +5286,8 @@ function evalData(yr) {
   });
   db.fields.forEach(f => {
     if (!(f.seedRate > 0) || !f.sowDate || f.sowDate.slice(0, 4) !== yr) return;
-    const key = norm(f.variety || f.crop || ''), g = db.gd.find(x => x.group === 'Saatgut' && key && (norm(x.name).indexOf(key) >= 0 || key.indexOf(norm(x.name)) >= 0));
-    const pr = g ? priceOf(g.id, f.sowDate, baseCur()) : null; if (!pr) { miss.price++; return; }
+    const key = norm(f.variety || f.crop || ''), sas = db.items.filter(x => x.kind === 'sa'), g = sas.find(x => key && (norm(x.name).indexOf(key) >= 0 || key.indexOf(norm(x.name)) >= 0)) || sas.find(x => x.cat && norm(x.cat) === norm(f.crop || ''));
+    const pr = g ? priceOf('item:' + g.id, f.sowDate, baseCur()) : null; if (!pr) { miss.price++; return; }
     const per = g.unit === 't' ? pr.price / 1000 : g.unit === 'dt' ? pr.price / 100 : pr.price;
     rows[f.id].seed += f.seedRate * (f.ha || 0) * per;
   });
@@ -5334,10 +5362,6 @@ VIEWS.einst = function () {
   const w = canW('crop') || canW('draw');
   let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p></section>';
   h += '<section class="card"><div class="cardhead"><h2>Farben der Früchte</h2>' + (w ? '<button class="small" data-act="colorReset">Standardfarben</button>' : '') + '</div>' + Object.keys(DEF_COLORS).map(c => '<div class="crow"><span><span class="cdot" style="background:' + colorOfCrop(c) + '"></span>' + esc(c) + '</span><input type="color" data-ccrop="' + c + '" value="' + colorOfCrop(c) + '"' + (w ? '' : ' disabled') + '></div>').join('') + '<p class="hint">Felder werden auf der Karte nach ihrer Frucht eingefärbt. Sommergerste hat Vorrang vor Gerste.</p></section>';
-  h += '<section class="card"><div class="cardhead"><h2>Sorten / Saatgut</h2>' + (w ? '<button class="small primary" data-act="varAdd">Sorte hinzufügen</button>' : '') + '</div>';
-  const vs = db.varieties.slice().sort((a, b) => String(a.crop).localeCompare(String(b.crop), 'de') || a.name.localeCompare(b.name, 'de'));
-  h += vs.length ? '<div class="tablewrap"><table><thead><tr><th>Frucht</th><th>Sorte</th><th class="num">Saatmenge kg/ha</th><th></th></tr></thead><tbody>' + vs.map(v => '<tr><td>' + esc(v.crop || 'alle') + '</td><td>' + esc(v.name) + '</td><td class="num">' + (v.rate ? fmt(v.rate, 1) : '–') + '</td><td>' + (w ? '<button class="small danger" data-act="varDel" data-id="' + v.id + '">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">Noch keine Sorten. Im Anbau-Formular erscheinen sie als Vorauswahl, eintippen geht immer.</p>';
-  h += '</section>';
   h += '<section class="card"><div class="cardhead"><h2>Eigene Kartenebenen (WMS)</h2>' + (w ? '<button class="small primary" data-act="mapAdd">Ebene hinzufügen</button>' : '') + '</div><p class="hint">Auf der Karte oben rechts wählbar: Satellit, Straße, Höhenlinien, Kataster (ČÚZK) und LPIS (eAGRI) sind schon dabei. Hier kannst du weitere WMS-Dienste ergänzen, z. B. die Erosionsgefährdung aus dem LPIS. Du brauchst die WMS-Adresse und den Ebenennamen aus dem Dienst (GetCapabilities).</p>' + db.mapLayers.map((m, i) => '<div class="crow"><span>' + esc(m.name) + ' <span class="sub">' + esc(m.layers) + '</span></span>' + (w ? '<button class="small danger" data-act="mapDel" data-i="' + i + '">✕</button>' : '') + '</div>').join('') + '</section>';
   [['tillage', 'Bodenbearbeitung (Vorauswahl)'], ['drill', 'Drillkombinationen (Vorauswahl)']].forEach(l => {
     h += '<section class="card"><div class="cardhead"><h2>' + l[1] + '</h2>' + (w ? '<button class="small primary" data-act="listAdd" data-l="' + l[0] + '">Hinzufügen</button>' : '') + '</div><div class="chips">' + db.lists[l[0]].map((x, i) => '<span class="tag add">' + esc(x) + (w ? ' <button class="small" data-act="listDel" data-l="' + l[0] + '" data-i="' + i + '" aria-label="Entfernen">✕</button>' : '') + '</span>').join('') + '</div></section>';
@@ -5872,7 +5896,7 @@ $('fileImport').addEventListener('change', function () {
    ===================================================================== */
 const A = {};
 A.zTrack = d => { ui.zShift = d.id; render(); const c = $('zMapCard'); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth' }); };
-A.tab = d => { if (d.tab === 'maschinen' && ui.tab === 'maschinen') ui.machId = ''; ui.tab = d.tab; if (d.tab === 'kartei' && !selectedId) ui.zoomMe = true; render(); };
+A.tab = d => { if (d.tab === 'grunddaten' && ui.tab !== 'grunddaten' && ui.tab !== 'maschinen' && !ui.gdTab && can('mach')) d = { tab: 'maschinen' }; if (d.tab === 'maschinen' && ui.tab === 'maschinen') ui.machId = ''; ui.tab = d.tab; if (d.tab === 'kartei' && !selectedId) ui.zoomMe = true; render(); };
 A.evCsv = () => {
   const t = evalTable(), cv = t.cv, cols = evCols(), rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht'].concat(cols.map(c => c[1])).concat(['Währung'])];
   const line = r => [r.name, r.crop || ''].concat(cols.map(c => { const v = evVal(r, c[0], cv); return v == null ? '' : dnum(v); })).concat([curSym(dispCur())]);
@@ -6036,7 +6060,7 @@ function jobFinishDialog(id, pause) {
     if (f) j.donePct = partial ? pct : 100;
     if (partial) {
       const rest = JSON.parse(JSON.stringify(j));
-      Object.assign(rest, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (v.note.trim() || '')).trim() });
+      Object.assign(rest, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: (v.note.trim() || '') });
       delete rest.derived; db.jobs.push(rest);
     }
     deriveJob(j); toast(partial ? 'Pause gespeichert: ' + fmt(pct, 0) + ' % fertig, der Rest bleibt als offener Auftrag.' : 'Arbeit gespeichert.');
@@ -6135,8 +6159,8 @@ A.jobEdit = d => {
       const rest = db.jobs.find(x => x.restOf === j.id), restOpen = rest && rest.status === 'offen';
       if (pct < 99.5 && j.status === 'erledigt') {
         j.donePct = pct;
-        if (restOpen) { rest.donePct = pct; rest.note = ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (j.note || '')).trim(); }
-        else if (!rest) { const nr = JSON.parse(JSON.stringify(j)); Object.assign(nr, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: ('Rest, ab ' + fmt(pct, 0) + ' % fertig. ' + (j.note || '')).trim() }); delete nr.derived; db.jobs.push(nr); }
+        if (restOpen) { rest.donePct = pct; rest.note = j.note || ''; }
+        else if (!rest) { const nr = JSON.parse(JSON.stringify(j)); Object.assign(nr, { id: newId(), restOf: j.id, status: 'offen', startedAt: null, endedAt: null, ha: undefined, donePct: pct, date: today(), note: j.note || '' }); delete nr.derived; db.jobs.push(nr); }
         else ptxt = ' Der Rest-Auftrag wurde schon bearbeitet und bleibt unverändert.';
       } else {
         j.donePct = 100;
@@ -6326,15 +6350,45 @@ A.costNew = d => { const m = mById(d.id); if (m && canW('mach_log')) costDialog(
 A.costEdit = d => { const c = db.mcosts.find(x => x.id === d.id); if (c && canW('edit')) costDialog(c, mById(c.machineId)); };
 
 /* ----- Lager: Artikel, Buchungen, Hallen, Getreide ----- */
+
+const NUTS = [['N', 'Stickstoff (N) %'], ['P2O5', 'Phosphat (P₂O₅) %'], ['K2O', 'Kali (K₂O) %'], ['MgO', 'Magnesium (MgO) %'], ['S', 'Schwefel (S) %'], ['CaO', 'Kalk (CaO) %'], ['Na2O', 'Natrium (Na₂O) %'], ['B', 'Bor (B) %'], ['Cu', 'Kupfer (Cu) %'], ['Mn', 'Mangan (Mn) %'], ['Zn', 'Zink (Zn) %'], ['Fe', 'Eisen (Fe) %'], ['Mo', 'Molybdän (Mo) %']];
+const NUT_MORE = ['Na2O', 'B', 'Cu', 'Mn', 'Zn', 'Fe', 'Mo'];
+const nutTxt = n => NUTS.filter(x => n && n[x[0]] > 0).map(x => x[0].replace('2O5', '₂O₅').replace('2O', '₂O') + ' ' + fmt(n[x[0]], n[x[0]] % 1 ? 1 : 0)).join(' · ');
+/* Typische Gehalte in % (bitte mit dem Etikett abgleichen) */
+const DU_LIB = [
+  ['Harnstoff', 'Stickstoff (N)', { N: 46 }], ['Kalkammonsalpeter (KAS 27)', 'Stickstoff (N)', { N: 27, MgO: 4 }], ['Ammonsulfatsalpeter (ASS)', 'Stickstoff (N)', { N: 26, S: 13 }],
+  ['Schwefelsaures Ammoniak (SSA)', 'Stickstoff (N)', { N: 21, S: 24 }], ['Ammoniumnitrat (AN 33,5)', 'Stickstoff (N)', { N: 33.5 }], ['AHL (Harnstoff-Ammonnitrat-Lösung)', 'Stickstoff (N)', { N: 28 }], ['Kalkstickstoff', 'Stickstoff (N)', { N: 20, CaO: 50 }],
+  ['NPK 15-15-15', 'Mehrnährstoff (NPK)', { N: 15, P2O5: 15, K2O: 15 }], ['NPK 20-10-10', 'Mehrnährstoff (NPK)', { N: 20, P2O5: 10, K2O: 10 }], ['NPK 12-12-17', 'Mehrnährstoff (NPK)', { N: 12, P2O5: 12, K2O: 17 }],
+  ['Diammonphosphat (DAP 18-46-0)', 'Phosphor / Kalium', { N: 18, P2O5: 46 }], ['Triplesuperphosphat (TSP)', 'Phosphor / Kalium', { P2O5: 46 }], ['PK 12-24', 'Phosphor / Kalium', { P2O5: 12, K2O: 24 }],
+  ['Kali 60 (Kaliumchlorid)', 'Phosphor / Kalium', { K2O: 60 }], ['Kornkali', 'Phosphor / Kalium', { K2O: 40, MgO: 6, S: 5 }],
+  ['Kieserit', 'Magnesium / Schwefel', { MgO: 25, S: 20 }], ['Bittersalz (Magnesiumsulfat)', 'Magnesium / Schwefel', { MgO: 16, S: 13 }], ['Magnesium-Blattdünger', 'Magnesium / Schwefel', { MgO: 9 }],
+  ['Bor-Dünger', 'Spurenelemente', { B: 11 }], ['Mangansulfat', 'Spurenelemente', { Mn: 32, S: 18 }], ['Kupfersulfat', 'Spurenelemente', { Cu: 25, S: 12 }], ['Zinksulfat', 'Spurenelemente', { Zn: 22, S: 11 }], ['Spurenelement-Mix (Blattdünger)', 'Spurenelemente', {}],
+  ['Kohlensaurer Kalk', 'Kalk', { CaO: 50 }], ['Branntkalk', 'Kalk', { CaO: 90 }],
+  ['Gülle', 'Organisch', {}], ['Gärrest', 'Organisch', {}], ['Festmist', 'Organisch', {}]
+];
+const DU_UNITS = ['kg', 't', 'dt', 'l', 'Sack', 'Stück'];
+function nutFields(nut, hidden) {
+  nut = nut || {};
+  const f = [];
+  NUTS.forEach(x => f.push({ k: 'n_' + x[0], label: x[1], type: 'number', step: 'any', min: 0, max: 100, v: nut[x[0]] == null ? '' : nut[x[0]], showIf: NUT_MORE.indexOf(x[0]) >= 0 ? (v => !!v.n_more || NUT_MORE.some(k => v['n_' + k] !== '' && v['n_' + k] != null)) : undefined }));
+  f.splice(6, 0, { k: 'n_more', label: 'Weitere Inhaltsstoffe / Spurenelemente anzeigen', type: 'checkbox', v: NUT_MORE.some(k => nut[k] > 0) });
+  return f;
+}
+const nutRead = v => { const o = {}; NUTS.forEach(x => { const n = num(v['n_' + x[0]]); if (n > 0) o[x[0]] = n; }); return o; };
 function itemDialog(K, it, preset) {
   const prices = can('prices'), gr = K.k === 'gr', isNew = !it;
   it = it || Object.assign({ unit: K.unit, cat: '' }, preset || {});
-  const f = [{ k: 'name', label: 'Name', req: true, v: it.name || '', hint: gr ? 'z. B. Winterweizen Ernte 2026' : 'Handelsname' }];
-  if (!gr) f.push({ k: 'cat', label: 'Gruppe', type: 'select', opts: (K.k === 'ps' ? PS_CATS : DU_CATS).map(c => ({ v: c, l: c })), v: it.cat || 'Sonstiges' });
-  f.push({ k: 'unit', label: 'Einheit', type: 'select', opts: ['l', 'kg', 't', 'dt', 'Stück'].map(u => ({ v: u, l: u })), v: it.unit });
+  const sa = K.k === 'sa';
+  const f = [{ k: 'name', label: sa ? 'Name (Sorte)' : 'Name', req: true, v: it.name || '', hint: gr ? 'z. B. Winterweizen Ernte 2026' : sa ? 'z. B. RGT Reform' : 'Handelsname' }];
+  if (!gr) f.push({ k: 'cat', label: sa ? 'Frucht' : 'Gruppe', type: 'select', opts: (K.k === 'ps' ? PS_CATS : sa ? SEED_CROPS : DU_CATS).map(c => ({ v: c, l: c })), v: it.cat || (sa ? 'Raps' : 'Sonstiges') });
+  f.push({ k: 'unit', label: 'Einheit', type: 'select', opts: sa ? SEED_UNITS : (K.k === 'du' ? DU_UNITS : ['l', 'kg', 't', 'dt', 'Stück']).map(u => ({ v: u, l: u })), v: it.unit });
+  if (K.k === 'du') nutFields(it.nut).forEach(x => f.push(x));
   if (!gr) {
+    if (sa) f.push({ k: 'seedRate', label: 'Übliche Saatmenge in kg/ha (optional)', type: 'number', step: 'any', min: 0, v: it.seedRate == null ? '' : it.seedRate });
+    else {
     f.push({ k: 'crops', label: 'Zugelassen / geeignet für Kulturen', v: it.crops || '', hint: 'Mit Komma trennen, z. B. Raps, Weizen, Gerste' });
     f.push({ k: 'dose', label: 'Übliche Aufwandmenge pro ha', type: 'number', step: 'any', min: 0, v: it.dose == null ? '' : it.dose });
+    }
     if (K.k === 'ps') f.push({ k: 'wait', label: 'Wartezeit in Tagen', type: 'number', step: '1', min: 0, v: it.wait == null ? '' : it.wait });
     if (prices) f.push({ k: 'price', label: 'Preis pro ' + it.unit + ' in ' + (db.currency || '€'), type: 'number', step: 'any', min: 0, v: it.price == null ? '' : it.price });
     f.push({ k: 'min', label: 'Mindestbestand (Warnung darunter)', type: 'number', step: 'any', min: 0, v: it.min == null ? '' : it.min });
@@ -6345,7 +6399,7 @@ function itemDialog(K, it, preset) {
   dialog(isNew ? K.l + ': Artikel anlegen' : 'Artikel bearbeiten', f, v => {
     const rec = isNew ? { id: newId(), kind: K.k } : it;
     Object.assign(rec, { name: v.name.trim(), unit: v.unit, hallId: v.hall || null, note: v.note.trim() });
-    if (!gr) { rec.cat = v.cat; rec.crops = v.crops.split(/[,;]/).map(s => s.trim()).filter(Boolean).join(', '); rec.dose = num(v.dose); rec.min = num(v.min); if ('wait' in v) rec.wait = num(v.wait); if ('price' in v) rec.price = num(v.price); }
+    if (!gr) { rec.cat = v.cat; if (sa) { rec.crops = v.cat; rec.seedRate = num(v.seedRate); } else { rec.crops = v.crops.split(/[,;]/).map(s => s.trim()).filter(Boolean).join(', '); rec.dose = num(v.dose); } rec.min = num(v.min); if (K.k === 'du') rec.nut = nutRead(v); if ('wait' in v) rec.wait = num(v.wait); if ('price' in v) rec.price = num(v.price); }
     if (isNew) {
       db.items.push(rec);
       const a = num(v.start);
@@ -6353,23 +6407,14 @@ function itemDialog(K, it, preset) {
     }
     if ('price' in v && rec.price > 0) { const c = priceOf('item:' + rec.id, null, baseCur()); if (!c || Math.abs(c.price - rec.price) > 0.00005) priceAdd('item:' + rec.id, today(), rec.price, baseCur()); }
   }, !isNew ? { onDelete: db.moves.some(m => m.itemId === it.id) || db.jobs.some(j => j.itemId === it.id) ? null : () => { db.items = db.items.filter(x => x.id !== it.id); } } : {});
-  if (!gr) { const ci = $('df_crops'); if (ci) {
+  if (!gr && !sa) { const ci = $('df_crops'); if (ci) {
     const box = document.createElement('div'); box.className = 'cropchips';
     const sync = () => { const cur = ci.value.split(/[,;]/).map(s => s.trim()); box.querySelectorAll('button').forEach(b => b.classList.toggle('on', cur.indexOf(b.dataset.c) >= 0)); };
     box.innerHTML = CROPCH.map(c => '<button type="button" data-c="' + c[0] + '">' + c[0] + '</button>').join('');
     box.onclick = e => { const b = e.target.closest('button'); if (!b) return; const cur = ci.value.split(/[,;]/).map(s => s.trim()).filter(Boolean), i = cur.indexOf(b.dataset.c); if (i >= 0) cur.splice(i, 1); else cur.push(b.dataset.c); ci.value = cur.join(', '); sync(); };
     ci.addEventListener('input', sync); ci.parentNode.insertAdjacentElement('afterend', box); sync(); } }
 }
-const DU_PRESET = [
-  ['Kalkammonsalpeter (KAS)', 'Stickstoff (N)', 'ca. 27 % N, meist mit Mg'], ['Ammonsulfatsalpeter (ASS)', 'Stickstoff (N)', 'ca. 26 % N, 13 % S'],
-  ['Harnstoff', 'Stickstoff (N)', 'ca. 46 % N'], ['AHL (Harnstoff-Ammonnitrat-Lösung)', 'Stickstoff (N)', 'ca. 28 % N, flüssig'],
-  ['Schwefelsaures Ammoniak (SSA)', 'Stickstoff (N)', 'ca. 21 % N, 24 % S'], ['Kalkstickstoff', 'Stickstoff (N)', 'ca. 20 % N, Kalk'],
-  ['NPK 15-15-15', 'Mehrnährstoff (NPK)', '15 % N, 15 % P2O5, 15 % K2O'], ['NPK 20-10-10', 'Mehrnährstoff (NPK)', '20 % N, 10 % P2O5, 10 % K2O'],
-  ['Diammonphosphat (DAP 18-46-0)', 'Phosphor / Kalium', '18 % N, 46 % P2O5'], ['Triplesuperphosphat (TSP)', 'Phosphor / Kalium', 'ca. 46 % P2O5'],
-  ['Kali 60 (Kaliumchlorid)', 'Phosphor / Kalium', 'ca. 60 % K2O'], ['Kornkali', 'Phosphor / Kalium', 'ca. 40 % K2O, 6 % MgO'],
-  ['Kieserit', 'Phosphor / Kalium', 'ca. 25 % MgO, 50 % SO3'], ['Kohlensaurer Kalk', 'Kalk', 'Gehalt laut Lieferschein'],
-  ['Branntkalk', 'Kalk', 'Gehalt laut Lieferschein'], ['Gülle', 'Organisch', 'Gehalte laut Analyse'], ['Gärrest', 'Organisch', 'Gehalte laut Analyse'], ['Festmist', 'Organisch', 'Gehalte laut Analyse']
-];
+const DU_PRESET = DU_LIB.map(x => [x[0], x[1], nutTxt(x[2]) ? nutTxt(x[2]) : 'Gehalte laut Analyse / Etikett']);
 A.duPreset = () => {
   if (!canW('edit')) return;
   const have = {}; db.items.filter(i => i.kind === 'du').forEach(i => { have[i.name.toLowerCase()] = 1; });
@@ -6377,7 +6422,7 @@ A.duPreset = () => {
   if (!rest.length) { toast('Alle Düngerarten der Liste sind schon angelegt.'); return; }
   dialog('Düngerarten aus der Liste', [{ k: 'sel', label: 'Welche Arten sollen angelegt werden?', type: 'multi', opts: rest.map(x => ({ v: x[0], l: x[0] + ' (' + x[2] + ')' })) }], v => {
     const picked = v.sel || []; if (!picked.length) return 'Bitte mindestens eine Art wählen.';
-    picked.forEach(n => { const x = DU_PRESET.find(q => q[0] === n); if (x) db.items.push({ id: newId(), kind: 'du', name: x[0], cat: x[1], unit: x[1] === 'Organisch' ? 't' : 'kg', crops: '', dose: null, min: null, note: 'Typische Gehalte: ' + x[2] + ' (bitte mit dem Etikett abgleichen)', hallId: null }); });
+    picked.forEach(n => { const x = DU_PRESET.find(q => q[0] === n); if (x) db.items.push({ id: newId(), kind: 'du', name: x[0], cat: x[1], unit: x[1] === 'Organisch' ? 't' : 'kg', nut: (DU_LIB.find(q => q[0] === n) || [0, 0, {}])[2], crops: '', dose: null, min: null, note: 'Typische Gehalte: ' + x[2] + ' (bitte mit dem Etikett abgleichen)', hallId: null }); });
     toast(picked.length + ' Düngerarten angelegt. Preis, Aufwand und Lager kannst du je Artikel ergänzen.');
   }, { saveLabel: 'Anlegen' });
 };
@@ -6395,12 +6440,43 @@ A.gdPrice = d => {
     { k: 'cur', label: 'Währung', type: 'select', opts: [{ v: 'EUR', l: '€ Euro' }, { v: 'CZK', l: 'Kč Kronen' }], v: db.gdCur }
   ], v => { const p = num(v.price); if (!(p >= 0) || !v.date) return 'Bitte Datum und Preis eintragen.'; priceAdd(d.k, v.date, p, v.cur); toast('Preis gespeichert.'); }, { saveLabel: 'Preis speichern' });
 };
+const SEED_CROPS = ['Raps', 'Weizen', 'Gerste', 'Sommergerste', 'Zuckerrüben', 'Mais', 'Mohn', 'Roggen', 'Triticale', 'Hafer', 'Sonnenblumen', 'Soja', 'Erbsen', 'Zwischenfrucht', 'Gras / Grünland', 'Sonstiges'];
+const SEED_UNITS = [{ v: 'dt', l: 'dt' }, { v: 'kg', l: 'kg' }, { v: 't', l: 't' }, { v: 'l', l: 'l' }, { v: 'Stück', l: 'Stück' }, { v: 'Sack', l: 'Sack' }, { v: 'Einheit', l: 'Einheit (z. B. Zuckerrüben, 100.000 Korn)' }];
+function gdPriceFields() { return [{ k: 'price', label: 'Aktueller Preis (optional)', type: 'number', step: 'any', min: 0, hint: 'Gilt ab heute. Weitere Preise trägst du später mit „Neuer Preis“ ein.' }, { k: 'cur', label: 'Währung', type: 'select', opts: [{ v: 'EUR', l: '€ Euro' }, { v: 'CZK', l: 'Kč Kronen' }], v: db.gdCur }]; }
+function gdDuNew() {
+  const opts = [{ v: '', l: '– eigener Dünger (selbst eintragen) –' }].concat(DU_LIB.map(x => ({ v: x[0], l: x[0] + (nutTxt(x[2]) ? ' (' + nutTxt(x[2]) + ')' : ''), g: x[1] })));
+  const f = [
+    { k: 'tpl', label: 'Dünger aus der Liste wählen', type: 'select', opts, v: '', hint: 'Die Gehalte sind typische Werte und füllen sich automatisch. Bitte mit dem Etikett abgleichen und bei Bedarf ändern.' },
+    { k: 'name', label: 'Name', req: true },
+    { k: 'unit', label: 'Einheit', type: 'select', opts: DU_UNITS.map(u => ({ v: u, l: u })), v: 'kg' }
+  ].concat(nutFields({})).concat(gdPriceFields());
+  dialog('Dünger hinzufügen', f, v => {
+    if (!v.name.trim()) return 'Name fehlt.';
+    const lib = DU_LIB.find(x => x[0] === v.tpl), cat = lib ? lib[1] : 'Sonstiges';
+    const it = { id: newId(), kind: 'du', name: v.name.trim(), cat, unit: v.unit, nut: nutRead(v), crops: '', dose: null, min: null, note: '', hallId: null };
+    db.items.push(it);
+    const p = num(v.price); if (p > 0) { it.price = Math.round(conv(p, v.cur, baseCur()) * 10000) / 10000; priceAdd('item:' + it.id, today(), p, v.cur); }
+    ui.gdTab = 'Dünger'; toast('Dünger angelegt.');
+  }, { onChange: (k, vals, set) => {
+    if (k === 'tpl') { const x = DU_LIB.find(q => q[0] === vals.tpl); if (!x) return; set('name', x[0]); set('unit', x[1] === 'Organisch' ? 't' : 'kg'); NUTS.forEach(n => set('n_' + n[0], x[2][n[0]] == null ? '' : x[2][n[0]])); if (NUT_MORE.some(m => x[2][m] > 0)) set('n_more', true); dlgApplyShow(); }
+  } });
+}
+function gdSeedNew() { if (canW('edit')) itemDialog(KINDS.find(k => k.k === 'sa'), null); else toast('Saatgut legt das Büro oder der Betriebsleiter im Lager an.'); }
 A.gdNew = () => {
-  dialog('Ware hinzufügen', [
-    { k: 'name', label: 'Name', req: true, hint: 'z. B. Winterweizen, Saatgut Raps, Strom' },
-    { k: 'group', label: 'Gruppe', type: 'select', opts: GD_GROUPS.map(g => ({ v: g, l: g })), v: 'Getreide / Verkauf' },
-    { k: 'unit', label: 'Einheit', type: 'select', opts: ['t', 'dt', 'kg', 'l', 'Stück', 'kWh'].map(u => ({ v: u, l: u })), v: 't' }
-  ], v => { if (!v.name.trim()) return 'Name fehlt.'; const r = { id: newId(), name: v.name.trim(), group: v.group, unit: v.unit, kind: '' }; db.gd.push(r); ui.gdOpen = r.id; });
+  const tab = ui.gdTab || 'Getreide';
+  if (tab === 'Dünger') { gdDuNew(); return; }
+  if (tab === 'Saatgut') { gdSeedNew(); return; }
+  if (tab === 'Pflanzenschutz') { if (canW('edit')) itemDialog(KINDS.find(k => k.k === 'ps'), null); else toast('Pflanzenschutzmittel legt das Büro oder der Betriebsleiter im Lager an.'); return; }
+  const grp = { Getreide: 'Getreide / Verkauf', Betriebsstoffe: 'Betriebsstoffe', Sonstiges: 'Sonstiges' }[tab] || 'Getreide / Verkauf';
+  const units = grp === 'Getreide / Verkauf' ? ['t', 'dt', 'kg'] : grp === 'Betriebsstoffe' ? ['l', 'kWh', 'kg', 'Stück'] : ['Stück', 'kg', 'l', 't', 'dt', 'Sack', 'kWh', 'h'];
+  dialog('Ware hinzufügen (' + tab + ')', [
+    { k: 'name', label: 'Name', req: true, hint: grp === 'Getreide / Verkauf' ? 'z. B. Winterweizen, Braugerste' : grp === 'Betriebsstoffe' ? 'z. B. Diesel, Strom, AdBlue, Öl' : 'z. B. Folie, Netze, Pacht' },
+    { k: 'unit', label: 'Einheit', type: 'select', opts: units.map(u => ({ v: u, l: u })), v: units[0] }
+  ].concat(gdPriceFields()), v => {
+    if (!v.name.trim()) return 'Name fehlt.';
+    const r = { id: newId(), name: v.name.trim(), group: grp, unit: v.unit, kind: '' }; db.gd.push(r); ui.gdOpen = r.id;
+    const p = num(v.price); if (p > 0) priceAdd(r.id, today(), p, v.cur);
+  });
 };
 A.gdDelEntry = (d, b) => { if (!arm(b, '?')) return; db.priceHist[d.k] = gdHist(d.k).filter(e => e.date !== d.date); const c = priceOf(d.k, null, baseCur()), it = db.items.find(x => 'item:' + x.id === d.k); if (it && c) it.price = Math.round(c.price * 10000) / 10000; save(); render(); };
 A.gdDelRow = (d, b) => { if (!arm(b, 'Wirklich?')) return; db.gd = db.gd.filter(x => x.id !== d.k); delete db.priceHist[d.k]; ui.gdOpen = ''; save(); render(); };
@@ -6738,15 +6814,6 @@ A.mapAdd = () => {
   });
 };
 A.mapDel = (d, b) => { if (!arm(b, '?')) return; db.mapLayers.splice(parseInt(d.i, 10), 1); save(); buildLayerControl(); render(); };
-A.varAdd = () => {
-  if (!(canW('crop') || canW('draw'))) return;
-  dialog('Sorte hinzufügen', [
-    { k: 'crop', label: 'Frucht', type: 'select', opts: [{ v: '', l: '– alle –' }].concat(CROPS.map(c => ({ v: c, l: c }))), v: '' },
-    { k: 'name', label: 'Sorte / Saatgut', req: true },
-    { k: 'rate', label: 'Übliche Saatmenge in kg/ha (optional)', type: 'number', step: 'any', min: 0 }
-  ], v => { if (!v.name.trim()) return 'Name fehlt.'; db.varieties.push({ id: newId(), crop: v.crop, name: v.name.trim(), rate: num(v.rate) }); });
-};
-A.varDel = (d, b) => { if (!arm(b, 'Löschen?')) return; db.varieties = db.varieties.filter(v => v.id !== d.id); save(); render(); };
 A.listAdd = d => {
   if (!(canW('crop') || canW('draw')) || !db.lists[d.l]) return;
   dialog('Eintrag hinzufügen', [{ k: 'name', label: 'Bezeichnung', req: true }], v => { if (!v.name.trim()) return 'Bezeichnung fehlt.'; db.lists[d.l].push(v.name.trim()); });
@@ -6875,7 +6942,7 @@ db.shifts.forEach(s => {
 ensureGps();
 render();
 (function(){ const ls = $('langSel'); if (ls) { ls.value = window.__lang || 'de'; ls.onchange = () => { save(); window.__setLang(ls.value); }; } })();
-window.__app = { deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
+window.__app = { deriveJob, stockOf, save, deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };
 })();
 </script>
 </body>

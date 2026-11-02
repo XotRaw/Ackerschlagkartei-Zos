@@ -348,7 +348,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
         <h2 style="margin-top:12px">Anbau</h2>
         <div class="chips" id="cfQuick"></div>
         <label>Frucht<select id="cfCrop"></select></label>
-        <label>Sorte (aus der Liste wählen oder eintippen)<input id="cfVar" list="varList" autocomplete="off" placeholder="z. B. RGT Reform"></label>
+        <label>Sorte<input id="cfVar" list="varList" autocomplete="off" placeholder="z. B. RGT Reform"></label>
         <datalist id="varList"></datalist><datalist id="tillList"></datalist><datalist id="drillList"></datalist>
         <div class="grid2"><label>Aussaat am<input id="cfSow" type="date"></label><label>Saatmenge in kg/ha<input id="cfSeed" type="number" step="any" min="0"></label></div>
         <label>Bodenbearbeitung (eintippen oder aus Liste)<input id="cfTill" list="tillList" autocomplete="off" placeholder="z. B. Pflug, Kreiselegge"></label>
@@ -3927,11 +3927,21 @@ function fillCropForm() {
   $('cfVar').value = f.variety || ''; $('cfTill').value = f.tillage || ''; $('cfDrill').value = f.drill || ''; refreshLists(); $('cfSow').value = f.sowDate || ''; $('cfSeed').value = f.seedRate == null ? '' : f.seedRate; $('cfEntry').checked = false;
 }
 const WORK_RE = /pflüg|pflug|grubb|egg|kreisel|säen|saat|drill|walz|fräs|mulch|striegel|bodenbearb/i;
-const seedItems = crop => db.items.filter(i => i.kind === 'sa' && (!crop || !i.cat || i.cat === crop));
-function refreshVarList(crop) { $('varList').innerHTML = seedItems(crop).map(v => '<option value="' + esc(v.name) + '">').join(''); }
+const seedCropOk = (cat, crop) => { const c = norm(crop || ''), t = norm(cat || ''); return !c || !t || c === t || c.indexOf(t) >= 0 || t.indexOf(c) >= 0; };
+const seedItems = crop => db.items.filter(i => i.kind === 'sa' && seedCropOk(i.cat, crop));
+function varNames(crop) { const vn = seedItems(crop).map(v => v.name); db.fields.forEach(x => { if (x.variety && seedCropOk(x.crop, crop) && vn.indexOf(x.variety) < 0) vn.push(x.variety); }); return vn.sort((p, q) => p.localeCompare(q, 'de')); }
+/* Sorten-Auswahlfeld: Auswahl aus Saatgut-Lager; „andere“ erlaubt Eintippen */
+function varSelSync(inpId, crop, blankLabel) {
+  const inp = $(inpId); if (!inp) return; let sel = $(inpId + 'Sel');
+  if (!sel) { sel = document.createElement('select'); sel.id = inpId + 'Sel'; inp.parentNode.insertBefore(sel, inp); sel.addEventListener('change', () => { if (sel.value === '__other') { inp.hidden = false; inp.focus(); } else { inp.hidden = true; inp.value = sel.value; inp.dispatchEvent(new Event('change')); } }); }
+  const cur = inp.value.trim(), vn = varNames(crop), known = !cur || vn.indexOf(cur) >= 0;
+  sel.innerHTML = '<option value="">' + esc(blankLabel) + '</option>' + vn.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') + '<option value="__other">Andere Sorte (eintippen) …</option>';
+  sel.value = known ? cur : '__other'; inp.hidden = known;
+}
+function refreshVarList(crop) { $('varList').innerHTML = varNames(crop).map(n => '<option value="' + esc(n) + '">').join(''); varSelSync('mfVar', crop, '– nicht ändern –'); }
 function refreshLists() {
   const crop = $('cfCrop').value, opt = a => a.map(x => '<option value="' + esc(x) + '">').join('');
-  $('varList').innerHTML = opt(seedItems(crop).map(v => v.name));
+  $('varList').innerHTML = opt(varNames(crop)); varSelSync('cfVar', crop, '– keine Sorte –');
   $('tillList').innerHTML = opt(db.lists.tillage);
   $('drillList').innerHTML = opt(db.lists.drill.concat(db.machines.filter(m => IMPL.indexOf(m.kind) >= 0).map(m => m.name)));
 }
@@ -6218,7 +6228,7 @@ A.multiGo = () => {
   const val = { crop: $('mfCrop').value, variety: $('mfVar').value.trim(), year: null, sowDate: $('mfSow').value, seedRate: num($('mfSeed').value), entry: $('mfEntry').checked };
   if (!val.crop && !val.variety && !val.sowDate && val.seedRate == null) { toast('Bitte mindestens einen Wert eintragen (Frucht, Sorte, Aussaat oder Saatmenge).'); return; }
   applyMulti(ids, val); save(); cropFormFor = null; ui.msel = {};
-  $('mfVar').value = ''; $('mfSow').value = ''; $('mfSeed').value = ''; $('mfEntry').checked = false;
+  $('mfVar').value = ''; refreshVarList($('mfCrop').value); $('mfSow').value = ''; $('mfSeed').value = ''; $('mfEntry').checked = false;
   toast(ids.length + (ids.length === 1 ? ' Feld' : ' Felder') + ' aktualisiert.'); render();
 };
 A.multiApply = () => {
@@ -7042,6 +7052,7 @@ document.addEventListener('change', e => {
     tick(true); save(); render();
   }
 });
+try { refreshVarList($('mfCrop').value || ''); } catch (e) { }
 document.addEventListener('toggle', e => { const d = e.target.dataset; if (d && d.uidetails === 'test') ui.testOpen = e.target.open; else if (d && d.uidetails) { ui.det = ui.det || {}; ui.det[d.uidetails] = e.target.open; } }, true);
 
 /* =====================================================================

@@ -3152,6 +3152,7 @@ function migrate(src) {
   if (!(d.trackDays > 0)) d.trackDays = 21;
   if (!d.lists || typeof d.lists !== 'object') d.lists = {};
   if (!Array.isArray(d.lists.tillage)) d.lists.tillage = ['Pflug', 'Grubber', 'Scheibenegge', 'Kreiselegge', 'Direktsaat'];
+  if (!Array.isArray(d.lists.duCats)) d.lists.duCats = ['Stickstoff (N)', 'Mehrnährstoff (NPK)', 'Phosphor / Kalium', 'Magnesium / Schwefel', 'Spurenelemente', 'Kalk', 'Organisch', 'Blattdünger', 'Sonstiges'];
   if (!Array.isArray(d.lists.drill)) d.lists.drill = ['Kreiselegge + Drillmaschine', 'Scheibenegge + Drillmaschine', 'Direktsaat-Drillmaschine'];
   if (!['both', 'alias', 'nr'].includes(d.nameMode)) d.nameMode = 'both';
   if (!d.cropColors || typeof d.cropColors !== 'object') d.cropColors = {};
@@ -4515,7 +4516,8 @@ function fuelDialog(f, presetMachine) {
 }
 /* ---------- Lager ---------- */
 const PS_CATS = ['Herbizid', 'Fungizid', 'Insektizid', 'Wachstumsregler', 'Molluskizid', 'Beizmittel', 'Netzmittel / Zusatzstoff', 'Sonstiges'];
-const DU_CATS = ['Stickstoff (N)', 'Mehrnährstoff (NPK)', 'Phosphor / Kalium', 'Magnesium / Schwefel', 'Spurenelemente', 'Kalk', 'Organisch', 'Blattdünger', 'Sonstiges'];
+const duCats = extra => { const l = (db.lists.duCats || []).slice(); (extra || []).forEach(c => { if (c && l.indexOf(c) < 0) l.push(c); }); return l; };
+const DU_DEFAULT_CATS = ['Stickstoff (N)', 'Mehrnährstoff (NPK)', 'Phosphor / Kalium', 'Magnesium / Schwefel', 'Spurenelemente', 'Kalk', 'Organisch', 'Blattdünger', 'Sonstiges'];
 const HALL_KINDS = ['Allgemein', 'Getreide', 'Dünger', 'Pflanzenschutz'];
 const stockOf = (id, hall) => db.moves.filter(m => m.itemId === id && (hall === undefined || (m.hallId || '') === hall)).reduce((a, m) => a + m.delta, 0);
 const hallName = id => { const x = db.halls.find(q => q.id === id); return x ? x.name : '–'; };
@@ -4974,7 +4976,7 @@ function movesTable(ids) {
 }
 function catalogView(K) {
   const cc = db.gdCur || baseCur(), lm = n => fmt(conv(n, baseCur(), cc), 2) + ' ' + curSym(cc), seeStock = can(K.stock), canMove = can(K.move) && !ro(), prices = can('prices'), edit = canW('edit');
-  const cats = K.k === 'ps' ? PS_CATS : K.k === 'sa' ? SEED_CROPS : DU_CATS;
+  const cats = K.k === 'ps' ? PS_CATS : K.k === 'sa' ? SEED_CROPS : duCats(db.items.filter(i => i.kind === 'du').map(i => i.cat));
   let items = db.items.filter(i => i.kind === K.k);
   const known = {}; CROPS.forEach(c => { known[c] = 1; }); items.forEach(i => String(i.crops || '').split(/[,;]/).map(s => s.trim()).filter(Boolean).forEach(c => { known[c] = 1; }));
   if (ui.lagerCat) items = items.filter(i => (i.cat || 'Sonstiges') === ui.lagerCat);
@@ -5365,7 +5367,7 @@ VIEWS.einst = function () {
   let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p></section>';
   h += '<section class="card"><div class="cardhead"><h2>Farben der Früchte</h2>' + (w ? '<button class="small" data-act="colorReset">Standardfarben</button>' : '') + '</div>' + Object.keys(DEF_COLORS).map(c => '<div class="crow"><span><span class="cdot" style="background:' + colorOfCrop(c) + '"></span>' + esc(c) + '</span><input type="color" data-ccrop="' + c + '" value="' + colorOfCrop(c) + '"' + (w ? '' : ' disabled') + '></div>').join('') + '<p class="hint">Felder werden auf der Karte nach ihrer Frucht eingefärbt. Sommergerste hat Vorrang vor Gerste.</p></section>';
   h += '<section class="card"><div class="cardhead"><h2>Eigene Kartenebenen (WMS)</h2>' + (w ? '<button class="small primary" data-act="mapAdd">Ebene hinzufügen</button>' : '') + '</div><p class="hint">Auf der Karte oben rechts wählbar: Satellit, Straße, Höhenlinien, Kataster (ČÚZK) und LPIS (eAGRI) sind schon dabei. Hier kannst du weitere WMS-Dienste ergänzen, z. B. die Erosionsgefährdung aus dem LPIS. Du brauchst die WMS-Adresse und den Ebenennamen aus dem Dienst (GetCapabilities).</p>' + db.mapLayers.map((m, i) => '<div class="crow"><span>' + esc(m.name) + ' <span class="sub">' + esc(m.layers) + '</span></span>' + (w ? '<button class="small danger" data-act="mapDel" data-i="' + i + '">✕</button>' : '') + '</div>').join('') + '</section>';
-  [['tillage', 'Bodenbearbeitung (Vorauswahl)'], ['drill', 'Drillkombinationen (Vorauswahl)']].forEach(l => {
+  [['tillage', 'Bodenbearbeitung (Vorauswahl)'], ['drill', 'Drillkombinationen (Vorauswahl)'], ['duCats', 'Düngerarten / Gruppen (Vorauswahl für Lager und Grunddaten)']].forEach(l => {
     h += '<section class="card"><div class="cardhead"><h2>' + l[1] + '</h2>' + (w ? '<button class="small primary" data-act="listAdd" data-l="' + l[0] + '">Hinzufügen</button>' : '') + '</div><div class="chips">' + db.lists[l[0]].map((x, i) => '<span class="tag add">' + esc(x) + (w ? ' <button class="small" data-act="listDel" data-l="' + l[0] + '" data-i="' + i + '" aria-label="Entfernen">✕</button>' : '') + '</span>').join('') + '</div></section>';
   });
   h = h.split('<section class="card">').map((c, i) => {
@@ -6406,7 +6408,7 @@ function itemDialog(K, it, preset) {
   it = it || Object.assign({ unit: K.k === 'sa' ? 'dt' : K.unit, cat: '' }, preset || {});
   const sa = K.k === 'sa', ps = K.k === 'ps', du = K.k === 'du';
   const f = [];
-  if (!gr) f.push({ k: 'cat', label: sa ? 'Frucht' : 'Gruppe', type: 'select', opts: (ps ? PS_CATS : sa ? SEED_CROPS : DU_CATS).map(c => ({ v: c, l: c })), v: it.cat || (sa ? 'Raps' : 'Sonstiges') });
+  if (!gr) f.push({ k: 'cat', label: sa ? 'Frucht' : 'Gruppe', type: 'select', opts: (ps ? PS_CATS : sa ? SEED_CROPS : duCats([it.cat])).map(c => ({ v: c, l: c })), v: it.cat || (sa ? 'Raps' : 'Sonstiges') });
   f.push({ k: 'name', label: sa ? 'Name (Sorte)' : 'Name', req: true, v: it.name || '', list: ps ? 'regList' : undefined, hint: gr ? 'z. B. Winterweizen Ernte 2026' : sa ? 'z. B. RGT Reform' : ps ? 'Ab 2 Buchstaben schlägt die App zugelassene Mittel vor; Daten werden dann automatisch ergänzt.' : 'Handelsname' });
   const UN = sa ? SEED_UNITS : (ps ? ['l', 'kg', 't', 'dt', 'g'] : DU_UNITS).map(u => ({ v: u, l: ({ l: 'Liter (l)', kg: 'Kilogramm (kg)', t: 'Tonne (t)', dt: 'Doppelzentner (dt)', g: 'Gramm (g)' })[u] || u }));
   f.push({ k: 'unit', label: 'Einheit', type: 'select', opts: UN, v: it.unit });
@@ -6429,8 +6431,8 @@ function itemDialog(K, it, preset) {
       f.push({ k: 'wait', label: 'Wartezeit in Tagen', type: 'number', step: '1', min: 0, v: it.wait == null ? '' : it.wait });
     }
     if (prices) {
-      f.push({ k: 'price', label: 'Preis pro ' + (it.unit || ''), type: 'number', step: 'any', min: 0, v: it.price == null ? '' : it.price });
       f.push({ k: 'cur', label: 'Preis eintippen in', type: 'select', opts: [{ v: 'EUR', l: '€ Euro' }, { v: 'CZK', l: 'Kč Kronen' }], v: baseCur() });
+      f.push({ k: 'price', label: 'Preis pro ' + (it.unit || ''), type: 'number', step: 'any', min: 0, v: it.price == null ? '' : it.price });
     }
     if (ps) f.push({ k: 'min', label: 'Mindestbestand (Warnung darunter)', type: 'number', step: 'any', min: 0, v: it.min == null ? '' : it.min });
   }
@@ -6521,7 +6523,7 @@ A.gdPrice = d => {
 };
 const SEED_CROPS = ['Raps', 'Weizen', 'Gerste', 'Sommergerste', 'Zuckerrüben', 'Mais', 'Mohn', 'Roggen', 'Triticale', 'Hafer', 'Sonnenblumen', 'Soja', 'Erbsen', 'Zwischenfrucht', 'Gras / Grünland', 'Sonstiges'];
 const SEED_UNITS = [{ v: 'dt', l: 'Doppelzentner (dt)' }, { v: 'kg', l: 'Kilogramm (kg)' }, { v: 't', l: 'Tonne (t)' }, { v: 'l', l: 'Liter (l)' }, { v: 'Stück', l: 'Stück' }, { v: 'Sack', l: 'Sack' }, { v: 'Einheit', l: 'Einheit' }];
-function gdPriceFields() { return [{ k: 'price', label: 'Aktueller Preis (optional)', type: 'number', step: 'any', min: 0, hint: 'Gilt ab heute. Weitere Preise trägst du später mit „Neuer Preis“ ein.' }, { k: 'cur', label: 'Währung', type: 'select', opts: [{ v: 'EUR', l: '€ Euro' }, { v: 'CZK', l: 'Kč Kronen' }], v: db.gdCur }]; }
+function gdPriceFields() { return [{ k: 'cur', label: 'Währung', type: 'select', opts: [{ v: 'EUR', l: '€ Euro' }, { v: 'CZK', l: 'Kč Kronen' }], v: db.gdCur }, { k: 'price', label: 'Aktueller Preis (optional)', type: 'number', step: 'any', min: 0, hint: 'Gilt ab heute. Weitere Preise trägst du später mit „Neuer Preis“ ein.' }]; }
 function gdDuNew() {
   const opts = [{ v: '', l: '– eigener Dünger (selbst eintragen) –' }].concat(DU_LIB.map(x => ({ v: x[0], l: x[0] + (nutTxt(x[2]) ? ' (' + nutTxt(x[2]) + ')' : ''), g: x[1] })));
   const f = [

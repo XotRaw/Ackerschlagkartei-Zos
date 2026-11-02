@@ -5016,6 +5016,12 @@ function catalogView(K) {
   if (seeStock) h += movesTable(db.items.filter(i => i.kind === K.k).map(i => i.id));
   return h + '</section>';
 }
+function grainPriceFor(it) {
+  const n = norm(it.name || ''); let best = null;
+  db.gd.filter(x => x.group === 'Getreide / Verkauf').forEach(x => { const k = norm(x.name); if (k && n.indexOf(k) >= 0 && (!best || k.length > norm(best.name).length)) best = x; });
+  const pr = best ? priceOf(best.id, null, baseCur()) : null;
+  const kg = UNIT_KG[it.unit] || 0; return pr && kg > 0 ? pr.price / 1000 * kg : null;
+}
 function grainView() {
   const K = KINDS.find(k => k.k === 'gr'), seeStock = can('grain_stock'), canMove = can('grain_stock') && !ro(), load = can('grain_load') && !ro(), edit = canW('edit');
   const items = db.items.filter(i => i.kind === 'gr');
@@ -5028,9 +5034,10 @@ function grainView() {
   if (load) h += '<p class="hint">Ablauf: Auf der Waage wiegen und „Ladung wiegen“ antippen. Danach zur Halle fahren, abladen und hier „Abladen“ mit der Halle wählen.</p>';
   if (!items.length) h += '<p class="empty">Noch keine Getreide-Artikel.' + (edit ? ' Lege z. B. „Winterweizen 2026“ an.' : '') + '</p>';
   else if (seeStock) {
-    h += '<h2 style="margin-top:14px">Bestand</h2><div class="tablewrap"><table><thead><tr><th>Getreide</th><th class="num">Bestand</th><th>Verteilung auf Hallen</th><th></th></tr></thead><tbody>' + items.map(i => {
+    h += '<h2 style="margin-top:14px">Bestand</h2><div class="tablewrap"><table><thead><tr><th>Getreide</th><th class="num">Bestand</th><th class="num">Wert</th><th>Verteilung auf Hallen</th><th></th></tr></thead><tbody>' + items.map(i => {
       const st = stockOf(i.id), parts = db.halls.map(x => [x.name, stockOf(i.id, x.id)]).concat([['ohne Halle', stockOf(i.id, '')]]).filter(p => Math.abs(p[1]) > 0.0001);
-      return '<tr><td><b>' + esc(i.name) + '</b></td><td class="num' + (st < 0 ? ' neg' : '') + '">' + fmt(st, 2) + ' ' + esc(i.unit) + '</td><td>' + (parts.map(p => esc(p[0]) + ': ' + fmt(p[1], 2) + ' ' + esc(i.unit)).join(' · ') || '–') + '</td><td class="num">' + (canMove ? '<button class="small" data-act="move" data-dir="out" data-id="' + i.id + '">Auslagern</button> <button class="small primary" data-act="move" data-dir="in" data-id="' + i.id + '">Einlagern</button> ' : '') + (edit ? '<button class="small" data-act="itemEdit" data-id="' + i.id + '" aria-label="Artikel bearbeiten">✎</button>' : '') + '</td></tr>';
+      const pu = grainPriceFor(i), vt = x => (pu == null ? '' : ' · ' + moneyT(Math.max(0, x) * pu));
+      return '<tr><td><b>' + esc(i.name) + '</b>' + (pu == null ? '' : '<div class="sub">' + moneyT(pu) + ' je ' + esc(i.unit) + '</div>') + '</td><td class="num' + (st < 0 ? ' neg' : '') + '">' + fmt(st, 2) + ' ' + esc(i.unit) + '</td><td class="num">' + (pu == null ? '–' : '<b>' + moneyT(Math.max(0, st) * pu) + '</b>') + '</td><td>' + (parts.map(p => esc(p[0]) + ': ' + fmt(p[1], 2) + ' ' + esc(i.unit) + vt(p[1])).join('<br>') || '–') + '</td><td class="num">' + (canMove ? '<button class="small" data-act="move" data-dir="out" data-id="' + i.id + '">Auslagern</button> <button class="small primary" data-act="move" data-dir="in" data-id="' + i.id + '">Einlagern</button> ' : '') + (edit ? '<button class="small" data-act="itemEdit" data-id="' + i.id + '" aria-label="Artikel bearbeiten">✎</button>' : '') + '</td></tr>';
     }).join('') + '</tbody></table></div>';
   }
   const done = db.loads.filter(l => l.status === 'eingelagert' && (seeStock || edit || l.userId === me().id)).sort((a, b) => b.ts - a.ts).slice(0, 12);

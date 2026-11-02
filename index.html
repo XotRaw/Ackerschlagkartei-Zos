@@ -5045,12 +5045,10 @@ function hallsView() {
   let h = '<section class="card"><div class="cardhead"><h2>Hallen und Lager</h2>' + (edit ? '<button class="small primary" data-act="hallNew">Halle anlegen</button>' : '') + '</div>';
   if (!db.halls.length) h += '<p class="empty">Noch keine Hallen angelegt.</p>';
   else {
-    h += '<div class="tablewrap"><table><thead><tr><th>Halle</th><th>Art</th><th>Inhalt</th><th></th></tr></thead><tbody>' + db.halls.map(x => {
-      const rows = rowsFor(x.id);
-      return '<tr><td><b>' + esc(x.name) + '</b>' + (x.note ? '<div class="sub">' + esc(x.note) + '</div>' : '') + '</td><td>' + esc(x.kind) + '</td><td>' + (rows.map(p => esc(p[0].name) + ': ' + fmt(p[1], 2) + ' ' + esc(p[0].unit)).join('<br>') || '<span class="sub">leer</span>') + '</td><td>' + (edit ? '<button class="small" data-act="hallEdit" data-id="' + x.id + '">Bearbeiten</button>' : '') + '</td></tr>';
-    }).join('');
+    const row = (head, rows, rs) => rows.length ? rows.map((p, i) => '<tr' + (i ? ' class="cont"' : '') + '>' + (i === 0 ? head.replace(/@RS@/g, rows.length) : '') + '<td class="num"><b>' + fmt(p[1], 2) + ' ' + esc(p[0].unit) + '</b></td><td>' + esc(p[0].name) + '</td>' + (i === 0 ? rs.replace(/@RS@/g, rows.length) : '') + '</tr>').join('') : '<tr>' + head.replace(/@RS@/g, 1) + '<td></td><td><span class="sub">leer</span></td>' + rs.replace(/@RS@/g, 1) + '</tr>';
+    h += '<div class="tablewrap"><table><thead><tr><th>Halle</th><th>Art</th><th class="num">Menge</th><th>Inhalt</th><th></th></tr></thead><tbody>' + db.halls.map(x => row('<td rowspan="@RS@"><b>' + esc(x.name) + '</b>' + (x.note ? '<div class="sub">' + esc(x.note) + '</div>' : '') + '</td><td rowspan="@RS@">' + esc(x.kind) + '</td>', rowsFor(x.id), '<td rowspan="@RS@">' + (edit ? '<button class="small" data-act="hallEdit" data-id="' + x.id + '">Bearbeiten</button>' : '') + '</td>')).join('');
     const none = rowsFor('');
-    if (none.length) h += '<tr><td><b>Ohne Halle</b></td><td></td><td>' + none.map(p => esc(p[0].name) + ': ' + fmt(p[1], 2) + ' ' + esc(p[0].unit)).join('<br>') + '</td><td></td></tr>';
+    if (none.length) h += row('<td rowspan="@RS@"><b>Ohne Halle</b></td><td rowspan="@RS@"></td>', none, '<td rowspan="@RS@"></td>');
     h += '</tbody></table></div>';
   }
   return h + '</section>';
@@ -5213,8 +5211,10 @@ function gdStats(k, year, best, disp) {
   let sum = 0, days = 0;
   pts.forEach((q, i) => { const to = i + 1 < pts.length ? pts[i + 1].date : end, n = Math.max(0, D(to) - D(q.date)) + (i + 1 < pts.length ? 0 : 1); sum += q.price * n; days += n; });
   let b = pts[0]; pts.forEach(q => { if (best === 'high' ? q.price > b.price : q.price < b.price) b = q; });
-  return { avg: days ? sum / days : pts[0].price, best: b, pts, y0, end };
+  let lo = pts[0], hi = pts[0]; pts.forEach(q => { if (q.price < lo.price) lo = q; if (q.price > hi.price) hi = q; });
+  return { avg: days ? sum / days : pts[0].price, best: b, lo, hi, pts, y0, end };
 }
+const bcell = (st, q, u) => pf(q.price, u) + ' <span class="sub">(' + (q.date === st.y0 ? 'seit ' + dateDE(q.orig) : dateDE(q.date)) + ')</span>';
 function gdChart(st) {
   if (!st || st.pts.length < 2) return '';
   const W = 320, H = 70, P = 6, D = d => new Date(d + 'T00:00:00Z').getTime(), t0 = D(st.y0), t1 = Math.max(D(st.end), t0 + 864e5);
@@ -5227,7 +5227,7 @@ function gdChart(st) {
 }
 const GD_TABS = [['Getreide', ['Getreide / Verkauf']], ['Pflanzenschutz', ['Pflanzenschutz']], ['Dünger', ['Dünger']], ['Betriebsstoffe', ['Betriebsstoffe']], ['Saatgut', ['Saatgut']], ['Sonstiges', ['Sonstiges']]];
 function gdTabsHtml(active, rows) {
-  return '<div class="cropchips gdtabs">' + (can('mach') ? '<button type="button" class="' + (ui.tab === 'maschinen' ? 'on' : '') + '" data-act="tab" data-tab="maschinen">Maschinen</button>' : '') + GD_TABS.map(t => '<button type="button" class="' + (t[0] === active ? 'on' : '') + '" data-act="gdTab" data-t="' + esc(t[0]) + '">' + esc(t[0]) + (rows ? ' (' + rows.filter(r => t[1].indexOf(r.group) >= 0).length + ')' : '') + '</button>').join('') + '</div>';
+  return '<div class="cropchips gdtabs">' + (can('mach') ? '<button type="button" class="' + (ui.tab === 'maschinen' ? 'on' : '') + '" data-act="tab" data-tab="maschinen">Maschinen</button>' : '') + GD_TABS.map(t => '<button type="button" class="' + (t[0] === active ? 'on' : '') + '" data-act="gdTab" data-t="' + esc(t[0]) + '">' + esc(t[0]) + '</button>').join('') + '</div>';
 }
 VIEWS.grunddaten = function () {
   const edit = canW('prices') || (can('prices') && !ro()), yr = ui.gdYear || today().slice(0, 4), dc = db.gdCur;
@@ -5239,21 +5239,19 @@ VIEWS.grunddaten = function () {
   db.items.filter(i => i.kind === 'sa').sort((a, b) => String(a.cat || '').localeCompare(String(b.cat || ''), 'de') || a.name.localeCompare(b.name, 'de')).forEach(i => rows.push({ key: 'item:' + i.id, name: (i.cat ? i.cat + ' · ' : '') + i.name, unit: i.unit, group: 'Saatgut', item: i }));
   const tab = GD_TABS.find(t => t[0] === ui.gdTab) || GD_TABS[0];
   let h = '<div class="page">' + gdTabsHtml(tab[0], rows) + '<section class="card"><div class="cardhead"><h2>Grunddaten: Preise</h2>' + (edit ? '<button class="small primary" data-act="gdNew">Ware hinzufügen</button>' : '') + '</div>';
-  h += '<p class="hint">Währung: oben rechts umschaltbar. Kurs: 1 € = ' + fmt(db.fx.rate, 2) + ' Kč · ' + (db.fx.date ? 'Stand ' + dateDE(db.fx.date) + ' (' + esc(db.fx.src || 'EZB') + (db.fx.manual ? ', von Hand' : '') + ')' : 'Standardwert, noch nicht aktuell') + ' <button class="small" data-act="fxRefresh">Aktualisieren</button> <button class="small" data-act="fxManual">Von Hand</button></p>';
-  h += '<p class="hint">Hier stehen die Preise, mit denen gerechnet wird. Bei einer Änderung „Neuer Preis“ mit Datum eintragen: Der alte Preis bleibt im Verlauf erhalten. Das Jahresmittel gewichtet jeden Preis nach den Tagen, die er gegolten hat. Beim Verkauf (Getreide) zählt der höchste Preis als bester, beim Einkauf der niedrigste.</p>';
   h += '<div class="filter"><label>Jahr für die Auswertung<select data-ui="gdYear">' + Object.keys(years).sort().reverse().map(y => '<option' + (y === yr ? ' selected' : '') + '>' + y + '</option>').join('') + '</select></label></div>';
   if (!rows.some(r => tab[1].indexOf(r.group) >= 0)) h += '<p class="empty">In diesem Ordner ist noch nichts eingetragen.</p>';
   const groups = tab[1];
   groups.forEach(g => {
     const rs = rows.filter(r => r.group === g); if (!rs.length) return;
-    const best = gdBest(g);
-    h += '<h2 style="margin-top:14px">' + esc(g) + '</h2><div class="tablewrap"><table><thead><tr><th>Ware</th><th class="num">Aktueller Preis</th><th>seit</th><th class="num">Mittel ' + yr + '</th><th>' + (best === 'high' ? 'Höchster' : 'Niedrigster') + ' Preis ' + yr + '</th><th></th></tr></thead><tbody>';
+    const best = gdBest(g), mode = g === 'Getreide / Verkauf' ? 'gr' : (g === 'Pflanzenschutz' || g === 'Saatgut') ? 'nb' : 'std';
+    h += '<h2 style="margin-top:14px">' + esc(g) + '</h2><div class="tablewrap"><table><thead><tr><th>Ware</th><th class="num">Aktueller Preis</th><th>seit</th><th class="num">Mittel ' + yr + '</th>' + (mode === 'gr' ? '<th>Niedrigster ' + yr + '</th><th>Höchster ' + yr + '</th>' : mode === 'nb' ? '' : '<th>' + (best === 'high' ? 'Höchster' : 'Niedrigster') + ' Preis ' + yr + '</th>') + '<th></th></tr></thead><tbody>';
     rs.forEach(r => {
       const c = priceOf(r.key, null, dc), cur = c ? c : (r.item && r.item.price > 0 ? { price: conv(r.item.price, baseCur(), dc), date: '' } : null), st = gdStats(r.key, yr, best, dc), open = ui.gdOpen === r.key;
-      h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.item && r.item.nut && nutTxt(r.item.nut) ? '<div class="sub">' + esc(nutTxt(r.item.nut)) + '</div>' : '') + '</td><td class="num">' + (cur ? pf(cur.price, r.unit) : '–') + '</td><td>' + (cur && cur.date ? dateDE(cur.date) : '') + '</td><td class="num">' + (st ? pf(st.avg, r.unit) : '–') + '</td><td>' + (st ? pf(st.best.price, r.unit) + ' <span class="sub">(' + (st.best.date === st.y0 ? 'seit ' + dateDE(st.best.orig) : dateDE(st.best.date)) + ')</span>' : '–') + '</td><td style="white-space:nowrap">' + (edit ? '<button class="small primary" data-act="gdPrice" data-k="' + esc(r.key) + '">Neuer Preis</button> ' : '') + '<button class="small" data-act="gdOpen" data-k="' + esc(r.key) + '">' + (open ? 'Zu' : 'Verlauf') + '</button></td></tr>';
+      h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.item && r.item.nut && nutTxt(r.item.nut) ? '<div class="sub">' + esc(nutTxt(r.item.nut)) + '</div>' : '') + '</td><td class="num">' + (cur ? pf(cur.price, r.unit) : '–') + '</td><td>' + (cur && cur.date ? dateDE(cur.date) : '') + '</td><td class="num">' + (st ? pf(st.avg, r.unit) : '–') + '</td>' + (mode === 'gr' ? '<td>' + (st ? bcell(st, st.lo, r.unit) : '–') + '</td><td>' + (st ? bcell(st, st.hi, r.unit) : '–') + '</td>' : mode === 'nb' ? '' : '<td>' + (st ? bcell(st, st.best, r.unit) : '–') + '</td>') + '<td style="white-space:nowrap">' + (edit ? '<button class="small primary" data-act="gdPrice" data-k="' + esc(r.key) + '">Neuer Preis</button> ' : '') + '<button class="small" data-act="gdOpen" data-k="' + esc(r.key) + '">' + (open ? 'Zu' : 'Verlauf') + '</button></td></tr>';
       if (open) {
         const hist = gdHist(r.key, dc).slice().reverse();
-        h += '<tr><td colspan="6"><div class="panels"><div>' + (hist.length ? '<table><thead><tr><th>Datum</th><th class="num">Preis</th><th class="num">Änderung</th><th></th></tr></thead><tbody>' + hist.map((e, i) => { const prev = hist[i + 1], ch = prev && prev.price ? ((e.price - prev.price) / prev.price) * 100 : null; return '<tr><td>' + dateDE(e.date) + '</td><td class="num">' + pf(e.price, r.unit) + '</td><td class="num">' + (ch == null ? '' : (ch > 0 ? '+' : '') + fmt(ch, 1) + ' %') + '</td><td>' + (edit ? '<button class="small" data-act="gdDelEntry" data-k="' + esc(r.key) + '" data-date="' + e.date + '">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="hint">Noch kein Preisverlauf. Mit „Neuer Preis“ den ersten Preis eintragen.</p>') + '</div><div>' + (st && st.pts.length > 1 ? '<div class="hint">Verlauf ' + yr + '</div>' + gdChart(st) : '') + (r.custom && edit && !r.item ? '<div style="margin-top:8px"><button class="small danger" data-act="gdDelRow" data-k="' + esc(r.key) + '">Ware entfernen</button></div>' : '') + '</div></div></td></tr>';
+        h += '<tr><td colspan="' + (mode === 'gr' ? 7 : mode === 'nb' ? 5 : 6) + '"><div class="panels"><div>' + (hist.length ? '<table><thead><tr><th>Datum</th><th class="num">Preis</th><th class="num">Änderung</th><th></th></tr></thead><tbody>' + hist.map((e, i) => { const prev = hist[i + 1], ch = prev && prev.price ? ((e.price - prev.price) / prev.price) * 100 : null; return '<tr><td>' + dateDE(e.date) + '</td><td class="num">' + pf(e.price, r.unit) + '</td><td class="num">' + (ch == null ? '' : (ch > 0 ? '+' : '') + fmt(ch, 1) + ' %') + '</td><td>' + (edit ? '<button class="small" data-act="gdDelEntry" data-k="' + esc(r.key) + '" data-date="' + e.date + '">✕</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="hint">Noch kein Preisverlauf. Mit „Neuer Preis“ den ersten Preis eintragen.</p>') + '</div><div>' + (st && st.pts.length > 1 ? '<div class="hint">Verlauf ' + yr + '</div>' + gdChart(st) : '') + (r.custom && edit && !r.item ? '<div style="margin-top:8px"><button class="small danger" data-act="gdDelRow" data-k="' + esc(r.key) + '">Ware entfernen</button></div>' : '') + '</div></div></td></tr>';
       }
     });
     h += '</tbody></table></div>';

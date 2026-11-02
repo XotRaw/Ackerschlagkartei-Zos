@@ -3944,6 +3944,8 @@ $('cropForm').addEventListener('submit', e => {
 });
 /* ----- Mehrfachauswahl ----- */
 const sortedFields = all => db.fields.filter(f => all || f.id === selectedId || (db.hiddenCrops || []).indexOf(cropKey(f)) < 0).sort((a, b) => String(dn(a)).localeCompare(String(dn(b)), 'de', { numeric: true }));
+const pctTxt = x => fmt(Math.min(99.9, Math.round(x * 10) / 10), x >= 99 ? 1 : 0) + ' %';
+const donePctOf = f => { const j = db.jobs.find(x => x.fieldId === f.id && x.status !== 'erledigt' && x.donePct > 0 && x.donePct < 100); return j ? j.donePct : 0; };
 const halfDone = f => db.jobs.some(x => x.fieldId === f.id && x.status !== 'erledigt' && x.donePct > 0 && x.donePct < 100);
 const cropKey = f => cropOf(f) || f.crop || '';
 function listedFields() {
@@ -3956,7 +3958,7 @@ function listedFields() {
 }
 function fieldListHtml() {
   return listedFields().map(f => {
-    const m = ui.multi && ui.msel[f.id], sub = [f.crop, f.variety, f.sowDate ? 'Saat ' + dateDE(f.sowDate) : null, halfDone(f) ? 'halb fertig' : null].filter(Boolean).join(' · ') || 'ohne Kultur';
+    const m = ui.multi && ui.msel[f.id], sub = [f.crop, f.variety, f.sowDate ? 'Saat ' + dateDE(f.sowDate) : null, halfDone(f) ? pctTxt(donePctOf(f)) + ' fertig' : null].filter(Boolean).join(' · ') || 'ohne Kultur';
     return '<li data-id="' + f.id + '" class="' + (f.id === selectedId && !ui.multi ? 'sel' : '') + (m ? ' msel' : '') + '"><div><div class="nm"><span class="cdot" style="background:' + colorOfCrop(f.crop) + '"></span>' + esc(dn(f)) + '</div><div class="sub">' + esc(sub) + '</div></div><div class="ha">' + fmt(f.ha, 2) + ' ha</div>' + (ui.multi ? '<input type="checkbox" tabindex="-1" aria-label="ausgewählt"' + (m ? ' checked' : '') + '>' : '<span></span>') + '</li>';
   }).join('');
 }
@@ -4127,7 +4129,7 @@ function jobCard(j) {
   if (mine && j.status === 'läuft') btn = '<button data-act="jobPause" data-id="' + j.id + '">⏸ Pause</button><button class="primary" data-act="jobFinish" data-id="' + j.id + '">Fertig</button>';
   const clk = j.status === 'läuft' ? '<span class="clk" data-since="' + j.startedAt + '">' + hms(Date.now() - j.startedAt) + '</span>' : '';
   const fl = j.fieldId && j.status !== 'erledigt' ? '<div class="sub fl">' + fieldLinks(fieldById(j.fieldId)) + '</div>' : '';
-  return '<div class="job ' + j.status + '"><div class="jmain' + (j.fieldId ? ' jmap' : '') + '"' + (j.fieldId ? ' data-act="jobMap" data-id="' + j.id + '"' : '') + '><div><b>' + esc(j.title) + '</b> <span class="tag ' + stCls(j.status) + '">' + JS_L(j.status) + '</span>' + clk + '</div><div class="sub">' + jobSub(j) + '</div>' + (j.donePct > 0 && j.status !== 'erledigt' ? '<div class="sub"><span class="tag soon">halb fertig</span> Schlag ist zu ' + fmt(j.donePct, 0) + ' % bearbeitet, Rest offen.</div>' : '') + (j.note ? '<div class="sub">' + esc(j.note) + '</div>' : '') + fl + (j.fieldId ? '<div class="sub maphint">' + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '▲ Karte schließen' : '🗺 Karte anzeigen') + '</div>' : '') + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '<div class="jobmap-ph" data-id="' + j.id + '"></div>' : '') + '</div><div class="tools">' + btn + '</div></div>';
+  return '<div class="job ' + j.status + '"><div class="jmain' + (j.fieldId ? ' jmap' : '') + '"' + (j.fieldId ? ' data-act="jobMap" data-id="' + j.id + '"' : '') + '><div><b>' + esc(j.title) + '</b> <span class="tag ' + stCls(j.status) + '">' + JS_L(j.status) + '</span>' + clk + '</div><div class="sub">' + jobSub(j) + '</div>' + (j.donePct > 0 && j.status !== 'erledigt' ? '<div class="sub"><span class="tag soon">' + pctTxt(j.donePct) + ' fertig</span> ' + (fieldById(j.fieldId) && fieldById(j.fieldId).ha > 0 ? fmt(fieldById(j.fieldId).ha * j.donePct / 100, 2) + ' von ' + fmt(fieldById(j.fieldId).ha, 2) + ' ha bearbeitet, ' : '') + 'Rest offen.</div>' : '') + (j.note ? '<div class="sub">' + esc(j.note) + '</div>' : '') + fl + (j.fieldId ? '<div class="sub maphint">' + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '▲ Karte schließen' : '🗺 Karte anzeigen') + '</div>' : '') + (ui.jobMapOpen && ui.jobMapOpen[j.id] ? '<div class="jobmap-ph" data-id="' + j.id + '"></div>' : '') + '</div><div class="tools">' + btn + '</div></div>';
 }
 const JS_L = s => JOB_ST[s] || s;
 
@@ -5971,7 +5973,7 @@ A.jobMap = (d, b, e) => {
 };
 A.shiftStart = () => { startShift(me().id); ui.zoomMe = true; render(); };
 A.shiftPause = () => { const s = activeShift(me().id); if (!s) return; s.paused = !s.paused; tick(true); save(); toast(s.paused ? 'Pause gestartet – die Pausenzeit zählt nicht zur Arbeitszeit.' : 'Weiter geht’s – Pause beendet.'); render(); };
-A.shiftEnd = (d, b) => { if (!arm(b, 'Wirklich Feierabend?')) return; endShift(me().id); render(); };
+A.shiftEnd = (d, b) => { const rj = runningJob(me().id); if (rj) { toast('Bitte zuerst die laufende Arbeit „' + rj.title + '“ beenden oder pausieren, dann Feierabend.'); return; } if (!arm(b, 'Wirklich Feierabend?')) return; endShift(me().id); render(); };
 A.showOnMap = d => { const p = livePos(d.uid); ui.tab = 'kartei'; render(); if (p) setTimeout(() => map.setView([p.lat, p.lng], 16), 120); };
 
 A.jobNew = () => {

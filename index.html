@@ -290,6 +290,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
   <div class="brand">Ackerschlagkartei</div>
   <label>Angemeldet als (Testansicht)<select id="meSel"></select></label>
   <div class="langwrap">
+  <button type="button" id="reloadBtn" class="langsel" title="Seite neu laden / Obnovit stránku / Reload" aria-label="Aktualisieren" style="cursor:pointer;font-size:18px;padding:4px 10px">🔄</button>
   <label class="langsel" title="Währung / Měna / Currency"><span>💱</span><select id="curSel" aria-label="Währung"><option value="EUR">€ EUR</option><option value="CZK">Kč CZK</option></select></label>
   <label class="langsel" title="Sprache / Jazyk / Language"><span>🌐</span><select id="langSel" aria-label="Sprache"><option value="de">Deutsch</option><option value="cs">Čeština</option><option value="en">English</option></select></label>
   </div>
@@ -5856,7 +5857,7 @@ $('btnCsv').addEventListener('click', () => {
 });
 function dataCounts(d) {
   const n = k => (d[k] || []).length;
-  return [['Schläge', n('fields')], ['Hof / Zonen', n('zones')], ['Einträge (Behandlung, Düngung, Arbeit)', n('entries')], ['Aufträge', n('jobs')], ['Arbeitstage', n('shifts')], ['GPS-Verläufe', Object.keys(d.tracks || {}).length], ['Maschinen', n('machines')], ['Lagerartikel', n('items')], ['Lagerbuchungen', n('moves')], ['Mitarbeiter', n('users')]];
+  return [['Schläge', n('fields')], ['Hof / Zonen', n('zones')], ['Einträge (Behandlung, Düngung, Arbeit)', n('entries')], ['Aufträge', n('jobs')], ['Arbeitstage', n('shifts')], ['GPS-Verläufe', Object.keys(d.tracks || {}).length], ['Maschinen', n('machines')], ['Maschinenkosten / Reparaturen', n('mcosts')], ['Tankungen', n('fuel')], ['Lagerartikel', n('items')], ['Lagerbuchungen', n('moves')], ['Hallen / Lagerorte', n('halls')], ['Getreide-Ladungen', n('loads')], ['Grunddaten-Waren', n('gd')], ['Preise (Verlaufseinträge)', Object.keys(d.priceHist || {}).reduce((a, k) => a + (d.priceHist[k] || []).length, 0)], ['Mitarbeiter', n('users')], ['  davon mit Stundenlohn', (d.users || []).filter(u => u.wage > 0).length], ['Rechte-Einstellungen', Object.keys(d.perms || {}).length]];
 }
 const countTxt = d => dataCounts(d).filter(x => x[1]).map(x => x[1] + ' ' + x[0]).join(', ');
 $('fileMerge').addEventListener('change', function () {
@@ -5884,7 +5885,7 @@ $('fileRestore').addEventListener('change', function () {
     try {
       const d = JSON.parse(r.result);
       if (!d.fields || !d.entries) throw new Error('x');
-      delete d._backup; db = migrate(d); selectedId = null; ui.fitted = false; save(); render(); toast('Sicherung eingelesen: ' + countTxt(db) + '.');
+      delete d._backup; const bl = d._lang; delete d._lang; db = migrate(d); if (bl && window.__setLang) { try { window.__setLang(bl); } catch (e) { } } selectedId = null; ui.fitted = false; save(); render(); toast('Sicherung eingelesen: ' + countTxt(db) + '.');
     } catch (e) { toast('Diese Datei ist keine gültige Sicherung.'); }
   };
   r.readAsText(file); this.value = '';
@@ -5958,6 +5959,7 @@ A.evPrint = () => { document.body.classList.add('evprint'); setTimeout(() => { w
 A.dataBackup = () => {
   if (me().role !== 'admin') return;
   const out = Object.assign({}, db, { _backup: { app: 'Ackerschlagkartei', date: new Date().toISOString(), counts: dataCounts(db) } });
+  try { out._lang = localStorage.getItem('ackerschlagkartei.lang') || ''; } catch (e) { }
   download('schlagkartei-sicherung-' + today() + '.json', JSON.stringify(out), 'application/json');
   toast('Komplette Sicherung gespeichert: ' + countTxt(db) + '.');
 };
@@ -7093,6 +7095,7 @@ db.shifts.forEach(s => {
 });
 ensureGps();
 render();
+(function(){ const rb = $('reloadBtn'); if (rb) rb.onclick = () => { try { save(); } catch (e) { } try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => { }); } catch (e) { } const u = location.href.split('#')[0].replace(/[?&]r=\d+/, '').replace(/\?$/, ''); setTimeout(() => { location.href = u + (u.indexOf('?') < 0 ? '?' : '&') + 'r=' + Date.now(); }, 150); }; })();
 (function(){ const cs = $('curSel'); if (cs) { cs.value = dispCur(); cs.onchange = () => { db.gdCur = cs.value === 'CZK' ? 'CZK' : 'EUR'; save(); render(); fxRefresh(false); }; } })();
 (function(){ const ls = $('langSel'); if (ls) { ls.value = window.__lang || 'de'; ls.onchange = () => { save(); window.__setLang(ls.value); }; } })();
 window.__app = { evalData, deriveJob, stockOf, save, deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };

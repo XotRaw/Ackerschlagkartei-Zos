@@ -212,6 +212,8 @@
   .multibox .mlist { max-height: 190px; overflow: auto; border: 1px solid var(--line, #ccc); border-radius: 8px; padding: 4px 8px; margin-top: 4px; }
   .multibox .mlist label { display: block; padding: 4px 0; }
   .mfield { margin: 8px 0; }
+  .flabel { background: transparent; border: 0; box-shadow: none; padding: 0; color: #111; font-size: 11px; font-weight: 700; line-height: 1.15; text-align: center; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; white-space: nowrap; pointer-events: none; }
+  .leaflet-container.zlowname .flabel { display: none; }
   .plabel { background: rgba(255,255,255,.85); border: 1px solid #333; color: #000; font-size: 11px; padding: 0 3px; box-shadow: none; }
   @media print {
     body.evprint > *:not(#view) { display: none !important; }
@@ -3807,7 +3809,29 @@ function placeWorkBtn() {
   } });
   workCtl = new C().addTo(map); try { refreshWork(); } catch (e) { /* noch nicht bereit */ }
 }
-placeWorkBtn();
+placeWorkBtn(); try { placeNameBtn(); } catch (e) { /* noch nicht bereit */ }
+function labelOn(k) { return !db.labelParts || db.labelParts[k] !== false; }
+function labelText(f) {
+  const lp = { nr: labelOn('nr'), name: labelOn('name'), ha: labelOn('ha') }, a = (f.alias || '').trim(), l = [];
+  if (lp.name && a) l.push('<b>' + esc(a) + '</b>');
+  if (lp.nr && f.name) l.push(esc(f.name));
+  if (lp.name && !a && !lp.nr && f.name) l.push(esc(f.name));
+  if (lp.ha && f.ha) l.push('<span style="font-weight:400">' + fmt(f.ha, 1) + ' ha</span>');
+  return l.join('<br>');
+}
+function nameZoom() { try { map.getContainer().classList.toggle('zlowname', map.getZoom() < 13); } catch (e) { /* noch nicht bereit */ } }
+map.on('zoomend', nameZoom); nameZoom();
+var nameCtl = null;
+function placeNameBtn() {
+  try { if (nameCtl) nameCtl.remove(); } catch (e) { /* egal */ }
+  const C = L.Control.extend({ options: { position: 'topright' }, onAdd() {
+    const d = L.DomUtil.create('div', 'leaflet-bar namebtn'), a = L.DomUtil.create('a', '', d);
+    a.href = '#'; a.title = 'Schlagnamen auf der Karte ein- oder ausblenden'; a.setAttribute('role', 'button'); a.innerHTML = 'Aa'; a.style.fontWeight = '700'; if (db.showNames !== false) a.classList.add('on');
+    L.DomEvent.disableClickPropagation(d); L.DomEvent.on(a, 'click', ev => { L.DomEvent.preventDefault(ev); A.toggleNames(); });
+    return d;
+  } });
+  nameCtl = new C().addTo(map);
+}
 function drawAll() {
   group.clearLayers(); editGroup.clearLayers(); selVerts.clear();
   let chg = false; db.fields.forEach(f => { if (ensureHoleCuts(f)) chg = true; }); if (chg) save();
@@ -3827,6 +3851,7 @@ function drawAll() {
     p.bindTooltip(esc(dn(f)) + ' · ' + fmt(f.ha, 2) + ' ha' + (f.crop ? ' · ' + esc(f.crop) : '') + (f.variety ? ' · ' + esc(f.variety) : ''), { sticky: true });
     p.on('click', () => { if (ui.multi) toggleMulti(f.id); else select(f.id, false); });
     (sel && canW('draw') ? editGroup : group).addLayer(p);
+    if (db.showNames !== false) { try { const c = p.getBounds().getCenter(); group.addLayer(L.marker(c, { icon: L.divIcon({ className: 'flabel', html: labelText(f), iconSize: [0, 0] }), interactive: false, keyboard: false })); } catch (e) { /* ohne Beschriftung */ } }
     (f.cuts || []).forEach(c => {
       if (!c.ring || c.ring.length < 3) return;
       const hl = c.id === selCut, edt = sel && canW('draw');
@@ -5644,7 +5669,7 @@ function renderKartei() {
   $('zoneBox').hidden = !draw && !db.zones.length;
   if (ui.multi && !canW('crop')) ui.multi = false;
   $('btnMulti').hidden = !canW('crop'); $('btnMulti').textContent = ui.multi ? 'Mehrfachauswahl beenden' : 'Mehrfachauswahl';
-  $('nameModes').innerHTML = '<span class="hint" style="margin:0 4px 0 0">Anzeige:</span>' + NAME_MODES.map(m => '<button class="small' + (db.nameMode === m[0] ? ' primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('');
+  $('nameModes').innerHTML = '<span class="hint" style="margin:0 4px 0 0">Anzeige:</span>' + NAME_MODES.map(m => '<button class="small' + (db.nameMode === m[0] ? ' primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + ' <button class="small' + (db.showNames !== false ? ' primary' : '') + '" data-act="toggleNames" title="Namen auf der Karte ein-/ausblenden">Namen auf Karte</button>' + (db.showNames !== false ? '<div style="margin-top:6px"><span class="hint" style="margin:0 4px 0 0">Auf der Karte zeigen:</span>' + [['nr', 'Nummer'], ['name', 'Name'], ['ha', 'Hektar']].map(x => '<button class="small' + (labelOn(x[0]) ? ' primary' : '') + '" data-act="labelPart" data-p="' + x[0] + '">' + x[1] + '</button>').join(' ') + '</div>' : '');
   const tot = {}; db.fields.forEach(f => { const k = cropKey(f); (tot[k] = tot[k] || { n: 0, ha: 0 }); tot[k].n++; tot[k].ha += f.ha || 0; });
   $('cropChips').innerHTML = '<button class="small' + (ui.cropFilter == null ? ' primary' : '') + '" data-act="cropFilter" data-c="__all">Alle</button>' + Object.keys(tot).sort((a, b) => (a || '\uffff').localeCompare(b || '\uffff', 'de')).map(k => '<button class="small' + (ui.cropFilter === k ? ' primary' : '') + '" data-act="cropFilter" data-c="' + esc(k) + '"><span class="cdot" style="background:' + colorOfCrop(k) + '"></span>' + esc(k || 'ohne Frucht') + ' · ' + tot[k].n + ' · ' + fmt(tot[k].ha, 1) + ' ha</button>').join('') + '<button class="small' + (ui.sortCrop ? ' primary' : '') + '" data-act="sortCrop" title="Liste nach Frucht sortieren">↕ nach Frucht</button>';
   { const vt = {}; db.fields.filter(f => ui.cropFilter == null || cropKey(f) === ui.cropFilter).forEach(f => { const k = f.variety || ''; if (!k && ui.cropFilter == null) return; (vt[k] = vt[k] || { n: 0, ha: 0 }); vt[k].n++; vt[k].ha += f.ha || 0; });
@@ -7108,6 +7133,8 @@ A.listDel = (d, b) => { if (!arm(b, '?')) return; db.lists[d.l].splice(parseInt(
 A.cropFilter = d => { ui.cropFilter = d.c === '__all' ? null : d.c; ui.varFilter = null; renderKartei(); };
 A.varFilter = d => { ui.varFilter = d.v === '__all' ? null : d.v; renderKartei(); };
 A.sortCrop = () => { ui.sortCrop = !ui.sortCrop; renderKartei(); };
+A.labelPart = d => { db.labelParts = Object.assign({ nr: true, name: true, ha: true }, db.labelParts || {}); db.labelParts[d.p] = !labelOn(d.p); save(); render(); };
+A.toggleNames = () => { db.showNames = db.showNames === false; save(); render(); try { placeNameBtn(); } catch (e) { /* egal */ } };
 A.nameMode = d => { db.nameMode = d.m; save(); render(); };
 A.zoneSel = d => selectZone(d.id, true);
 A.zoneEdit = d => {

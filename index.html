@@ -64,7 +64,7 @@
   #map { height: 100%; min-height: 320px; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 700; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
-  .cardhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .cardhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .cardhead h2 { margin: 0; }
   .tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   button, select, input, textarea { font: inherit; color: inherit; }
@@ -214,6 +214,19 @@
   .mfield { margin: 8px 0; }
   .flabel { background: transparent; border: 0; box-shadow: none; padding: 0; color: #111; font-size: 11px; font-weight: 700; line-height: 1.15; text-align: center; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; white-space: nowrap; pointer-events: none; }
   .leaflet-container.zlowname .flabel { display: none; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 10px 0 14px; }
+  .chartbox { border: 1px solid var(--line, #ddd); border-radius: 6px; padding: 10px; background: var(--bg); }
+  .chartbox h3 { margin: 0 0 6px; font-size: 14px; }
+  .donutwrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; }
+  .donutwrap svg { width: 150px; height: 150px; flex: none; }
+  .donutwrap text { fill: var(--ink); font-size: 14px; font-weight: 700; text-anchor: middle; }
+  .donutwrap text.s { font-size: 9px; font-weight: 400; }
+  .legend { font-size: 12px; display: grid; gap: 3px; min-width: 130px; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .hbar { display: grid; grid-template-columns: minmax(70px, 28%) 1fr auto; gap: 6px; align-items: center; font-size: 12px; margin: 3px 0; }
+  .hbar .bar { display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: rgba(128,128,128,.15); }
+  .hbar .bar span { display: block; height: 100%; }
+  .hbar .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .plabel { background: rgba(255,255,255,.85); border: 1px solid #333; color: #000; font-size: 11px; padding: 0 3px; box-shadow: none; }
   @media print {
     body.evprint > *:not(#view) { display: none !important; }
@@ -360,9 +373,11 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
         <label>Sorte<input id="cfVar" list="varList" autocomplete="off" placeholder="z. B. RGT Reform"></label>
         <datalist id="varList"></datalist><datalist id="tillList"></datalist><datalist id="drillList"></datalist>
         <div class="grid2"><label>Aussaat am<input id="cfSow" type="date"></label><label>Saatmenge in kg/ha<input id="cfSeed" type="number" step="any" min="0"></label></div>
+        <p class="hint" id="cfSeedHint" style="margin-top:-4px"></p>
         <label>Bodenbearbeitung (eintippen oder aus Liste)<input id="cfTill" list="tillList" autocomplete="off" placeholder="z. B. Pflug, Kreiselegge"></label>
         <label>Drillkombination / Sätechnik<input id="cfDrill" list="drillList" autocomplete="off" placeholder="z. B. Traktor + Kreiselegge + Drillmaschine"></label>
         <p class="hint">Arbeiten, die im Auftrag erledigt werden (Pflügen, Grubbern, Säen …), erscheinen unten automatisch. Hier trägst du sie von Hand ein.</p>
+        <div class="grid2"><label><span id="cfRentL">Pacht pro ha und Jahr</span><input id="cfRent" type="number" step="any" min="0"></label><label><span id="cfSubL">Förderung pro ha und Jahr</span><input id="cfSub" type="number" step="any" min="0"></label></div>
         <label class="chk"><input type="checkbox" id="cfEntry"> Aussaat auch in die Schlagkartei eintragen</label>
         <button class="primary" type="submit">Anbau speichern</button>
       </form>
@@ -4084,6 +4099,8 @@ function fillCropForm() {
   $('cfCrop').innerHTML = optHtml(cropOptList(f.crop), f.crop || '');
   $('cfQuick').innerHTML = QUICK_CROPS.map(c => '<button type="button" data-act="cropQuick" data-crop="' + c + '">' + c + '</button>').join('');
   $('cfVar').value = f.variety || ''; $('cfTill').value = f.tillage || ''; $('cfDrill').value = f.drill || ''; refreshLists(); $('cfSow').value = f.sowDate || ''; $('cfSeed').value = f.seedRate == null ? '' : f.seedRate; $('cfEntry').checked = false;
+  seedHint(); $('cfRentL').textContent = 'Pacht pro ha und Jahr (' + dcs() + ')'; $('cfSubL').textContent = 'Förderung pro ha und Jahr (' + dcs() + ')';
+  $('cfRent').value = f.rentHa > 0 ? toD(f.rentHa) : ''; $('cfSub').value = f.subHa > 0 ? toD(f.subHa) : '';
 }
 const WORK_RE = /pflüg|pflug|grubb|egg|kreisel|säen|saat|drill|walz|fräs|mulch|striegel|bodenbearb/i;
 const seedCropOk = (cat, crop) => { const c = norm(crop || ''), t = norm(cat || ''); return !c || !t || c === t || c.indexOf(t) >= 0 || t.indexOf(c) >= 0; };
@@ -4125,11 +4142,22 @@ function sowEntry(f) {
   const kg = f.seedRate > 0 ? round2(f.seedRate * f.ha) : null;
   db.entries.push({ id: newId(), fieldId: f.id, date: f.sowDate, type: 'Arbeit', name: 'Aussaat ' + f.crop + (f.variety ? ' ' + f.variety : ''), amount: kg, unit: kg != null ? 'kg' : '', ha: f.ha, note: f.seedRate > 0 ? fmt(f.seedRate, 1) + ' kg/ha' : '', userId: me().id, auto: 'saat' });
 }
+function seedHint() {
+  const f = fieldById(selectedId), el = $('cfSeedHint'); if (!f || !el) return;
+  const kg = (num($('cfSeed').value) || 0) * (f.ha || 0), v = $('cfVar').value.trim();
+  if (!(kg > 0)) { el.textContent = ''; return; }
+  const it = v && db.items.find(i => i.kind === 'sa' && i.name === v), kgE = it ? kgPerEinheit(it) : 0;
+  let t = 'Gesamt für ' + fmt(f.ha, 1) + ' ha: ' + fmt(kg, 0) + ' kg (' + fmt(kg / 1000, 2) + ' t)';
+  if (it && kgE > 0 && (it.unit === 'Einheit' || it.unit === 'Sack')) t += ' = ' + fmt(kg / kgE, 1) + ' ' + it.unit + (it.unit === 'Sack' ? ' (aufgerundet ' + Math.ceil(kg / kgE) + ')' : '');
+  el.textContent = t;
+}
+['cfSeed', 'cfVar'].forEach(id => { const x = $(id); if (x) { x.addEventListener('input', seedHint); x.addEventListener('change', seedHint); } });
 $('cropForm').addEventListener('submit', e => {
   e.preventDefault();
   const f = fieldById(selectedId); if (!f || !canW('crop')) return;
   f.crop = $('cfCrop').value; f.variety = $('cfVar').value.trim(); f.tillage = $('cfTill').value.trim(); f.drill = $('cfDrill').value.trim();
   f.sowDate = $('cfSow').value || null; f.seedRate = num($('cfSeed').value);
+  f.rentHa = fromD(num($('cfRent').value)) || 0; f.subHa = fromD(num($('cfSub').value)) || 0;
   if (f.sowDate) f.year = parseInt(f.sowDate.slice(0, 4), 10);
   if ($('cfEntry').checked) { if (f.sowDate && f.crop) sowEntry(f); else toast('Für den Eintrag fehlen Frucht oder Aussaatdatum.'); }
   save(); cropFormFor = null; toast('Anbau gespeichert.'); render();
@@ -4311,6 +4339,10 @@ function deriveJob(j) {
     if (sit) {
       const kg = j.seedRate * haW, amt = round2(sit.unit === 'dt' ? kg / 100 : sit.unit === 't' ? kg / 1000 : sit.unit === 'kg' ? kg : (sit.unit === 'Einheit' || sit.unit === 'Sack') && kgPerEinheit(sit) > 0 ? kg / kgPerEinheit(sit) : j.seedRate * haW);
       if (amt > 0) db.moves.push({ id: newId(), itemId: sit.id, date, ts: Date.now(), userId: j.userId, delta: -amt, fieldId: j.fieldId, note: 'Aussaat: ' + j.title, jobId: j.id, hallId: sit.hallId || null });
+      if (amt > 0 && sit.own) (sit.beiz || []).forEach(b => {
+        const bi = db.items.find(i => i.id === b.id), q = round2((b.dose || 0) * amt);
+        if (bi && q > 0) db.moves.push({ id: newId(), itemId: bi.id, date, ts: Date.now(), userId: j.userId, delta: -q, fieldId: j.fieldId, note: 'Beizung ' + sit.name + ': ' + j.title, jobId: j.id, hallId: bi.hallId || null });
+      });
     }
   }
   jobLines(j).forEach(l => {
@@ -4416,8 +4448,19 @@ function pauseList(s) {
   const tot = ps.reduce((a, x) => a + (x.end - x.start), 0);
   return '<div class="tablewrap"><table><thead><tr><th>Pause</th><th>Von</th><th>Bis</th><th class="num">Dauer</th></tr></thead><tbody>' + ps.map((x, i) => '<tr><td>' + (i + 1) + '</td><td>' + tstr(x.start) + '</td><td>' + (s.paused && x === ps[ps.length - 1] ? 'läuft' : tstr(x.end)) + '</td><td class="num">' + hm(x.end - x.start) + ' h</td></tr>').join('') + '<tr><td colspan="3"><b>Pausen gesamt</b></td><td class="num"><b>' + hm(tot) + ' h</b></td></tr></tbody></table></div>';
 }
+function remindList() {
+  const out = [], td = today(), soon = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  db.machines.forEach(m => {
+    const sv = svcOf(m); if (sv.state === 'overdue') out.push(['warn', 'Service überfällig: ' + m.name + (sv.hl != null && sv.hl <= 0 ? ' (' + fmt(-sv.hl, 0) + ' h drüber)' : sv.dl != null && sv.dl < 0 ? ' (seit ' + (-sv.dl) + ' Tagen)' : '')]); else if (sv.state === 'soon') out.push(['soon', 'Service bald: ' + m.name + (sv.hl != null && sv.hl <= 25 ? ' (in ' + fmt(sv.hl, 0) + ' h)' : sv.dl != null ? ' (in ' + sv.dl + ' Tagen)' : '')]);
+    const u = m.ins && m.ins.until; if (u && u < td) out.push(['warn', 'Versicherung abgelaufen: ' + m.name + ' (' + dateDE(u) + ')']); else if (u && u <= soon) out.push(['soon', 'Versicherung endet bald: ' + m.name + ' (' + dateDE(u) + ')']);
+  });
+  db.items.filter(i => i.kind === 'ps' && i.min > 0).forEach(i => { const st = stockOf(i.id); if (st < i.min) out.push(['warn', 'Mindestbestand unterschritten: ' + i.name + ' (' + fmt(st, 1) + ' ' + i.unit + ', Minimum ' + fmt(i.min, 1) + ')']); });
+  db.items.filter(i => i.kind !== 'gr' && i.kind !== 'ps' && stockOf(i.id) < -0.0001).forEach(i => out.push(['soon', 'Negativer Lagerbestand: ' + i.name + ' (' + fmt(stockOf(i.id), 1) + ' ' + i.unit + '), Einkauf oder Anfangsbestand fehlt?']));
+  return out;
+}
 VIEWS.heute = function () {
   const u = me(); let h = '<div class="page">';
+  if (canW('edit')) { const rl = remindList(); if (rl.length) h += '<details class="fold" data-uidetails="remind"' + ((ui.det && ui.det.remind === false) ? '' : ' open') + '><summary><h2>Erinnerungen (' + rl.length + ')</h2></summary><div class="foldtools">' + rl.map(r => '<p style="margin:3px 0"><span class="tag ' + r[0] + '">' + (r[0] === 'warn' ? 'dringend' : 'bald') + '</span> ' + esc(r[1]) + '</p>').join('') + '</div></details>'; }
   if (can('track') && !ro()) {
     const s = activeShift(u.id);
     if (!s) {
@@ -5192,10 +5235,13 @@ function grainPriceFor(it) {
   const pr = best ? priceOf(best.id, null, baseCur()) : null;
   const kg = UNIT_KG[it.unit] || 0; return pr && kg > 0 ? pr.price / 1000 * kg : null;
 }
+function grainPerT(it) { const g = grainPriceFor(it), kg = UNIT_KG[it.unit] || 0; if (g > 0 && kg > 0) return g * 1000 / kg; return null; }
 function grainView() {
   const K = KINDS.find(k => k.k === 'gr'), seeStock = can('grain_stock'), canMove = can('grain_stock') && !ro(), load = can('grain_load') && !ro(), edit = canW('edit');
   const items = db.items.filter(i => i.kind === 'gr');
   let h = '<section class="card"><div class="cardhead"><h2>Getreide</h2><div class="tools">' + (load ? '<button class="primary small" data-act="loadNew">Ladung wiegen</button>' : '') + (edit ? '<button class="small" data-act="itemNew" data-kind="gr">Artikel anlegen</button>' : '') + '</div></div>';
+  const gs = items.map(i => ({ label: i.name, value: Math.max(0, stockOf(i.id)) * (UNIT_KG[i.unit] || 0) / 1000, color: colorOfCrop(i.name) })).filter(x => x.value > 0);
+  if (seeStock && gs.length) h += '<div class="chartbox" style="margin:8px 0"><h3>Getreidebestand nach Art</h3>' + donutHtml(gs.sort((a, b) => b.value - a.value), fmt(gs.reduce((a, x) => a + x.value, 0), 0) + ' t', 'im Lager', v => fmt(v, 1) + ' t') + '</div>';
   const open = db.loads.filter(l => l.status === 'unterwegs' && (seeStock || edit || l.userId === me().id));
   h += '<h2>Unterwegs zum Lager</h2>' + (open.length ? open.map(l => {
     const it = db.items.find(i => i.id === l.itemId) || { name: '?', unit: 't' }, tr = l.trailerId ? mName(l.trailerId) : null, own = (l.userId === me().id && load) || (edit && load);
@@ -5468,8 +5514,8 @@ function machRate(id, yr) {
 }
 function evalData(yr) {
   Object.keys(machRateCache).forEach(k => delete machRateCache[k]);
-  const rows = {}, miss = { price: 0, wage: 0, date: 0, rate: 0 };
-  db.fields.forEach(f => { rows[f.id] = { f, ha: f.ha || 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0 }; });
+  const rows = {}, miss = { price: 0, wage: 0, date: 0, rate: 0, grain: 0 };
+  db.fields.forEach(f => { rows[f.id] = { f, ha: f.ha || 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, yield: 0, rev: 0, sub: (f.subHa || 0) * (f.ha || 0), rent: (f.rentHa || 0) * (f.ha || 0) }; });
   db.jobs.filter(j => j.fieldId && j.startedAt && j.endedAt && dstr(j.startedAt).slice(0, 4) === yr).forEach(j => {
     const r = rows[j.fieldId]; if (!r) return;
     const h = hrs(j.endedAt - j.startedAt), u = db.users.find(x => x.id === j.userId);
@@ -5496,10 +5542,16 @@ function evalData(yr) {
     const kgE = kgPerEinheit(g), per = g.unit === 't' ? price / 1000 : g.unit === 'dt' ? price / 100 : g.unit === 'kg' ? price : (g.unit === 'Einheit' || g.unit === 'Sack') && kgE > 0 ? price / kgE : price;
     rows[f.id].seed += f.seedRate * (f.ha || 0) * per;
   });
+  db.loads.filter(l => l.fieldId && rows[l.fieldId] && String(l.date).slice(0, 4) === yr && l.tons > 0).forEach(l => {
+    const r = rows[l.fieldId], it = db.items.find(i => i.id === l.itemId); r.yield += l.tons;
+    const perT = it ? grainPerT(it) : null; if (perT > 0) r.rev += l.tons * perT; else miss.grain++;
+  });
   try { dieselByField(yr).rows.forEach(d => { if (d.fieldId && rows[d.fieldId]) rows[d.fieldId].diesel += d.cost || 0; }); } catch (e) { /* ohne Diesel */ }
   return { rows: Object.keys(rows).map(k => rows[k]), miss };
 }
-const EV_ALL = [['ha', 'Fläche ha', 'n1'], ['h', 'Stunden', 'n1'], ['work', 'Arbeit', 'c'], ['mach', 'Maschinen', 'c'], ['diesel', 'Diesel', 'c'], ['ps', 'Pflanzenschutz', 'c'], ['du', 'Dünger', 'c'], ['seed', 'Saatgut', 'c'], ['sum', 'Summe', 'c'], ['perha', 'pro ha', 'c']];
+const EV_ALL = [['ha', 'Fläche ha', 'n1'], ['h', 'Stunden', 'n1'], ['work', 'Arbeit', 'c'], ['mach', 'Maschinen', 'c'], ['diesel', 'Diesel', 'c'], ['ps', 'Pflanzenschutz', 'c'], ['du', 'Dünger', 'c'], ['seed', 'Saatgut', 'c'], ['sum', 'Summe', 'c'], ['perha', 'pro ha', 'c'], ['yield', 'Ertrag t', 'n1'], ['tha', 'Ertrag t/ha', 'n1'], ['rev', 'Erlös', 'c'], ['sub', 'Förderung', 'c'], ['rent', 'Pacht', 'c'], ['res', 'Ergebnis', 'c'], ['resha', 'Ergebnis pro ha', 'c']];
+const EV_OPT = ['yield', 'tha', 'rev', 'sub', 'rent', 'res', 'resha'];
+const evRes = (r, cv) => cv(r.rev + r.sub - evSumOf(r) - r.rent);
 const evOn = k => !ui.evCols || ui.evCols[k] !== false;
 const evCost = ['work', 'mach', 'diesel', 'ps', 'du', 'seed'];
 const evSumOf = r => evCost.filter(evOn).reduce((a, k) => a + r[k], 0);
@@ -5507,24 +5559,71 @@ function evalTable() {
   const yr = ui.evYear || String(new Date().getFullYear()), by = ui.evBy || 'schlag';
   const d = evalData(yr), cv = v => conv(v, baseCur(), dispCur());
   const selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
-  let list = d.rows.filter(r => (evSumOf(r) > 0 || r.h > 0 || evCost.some(k => r[k] > 0)) && (!any || selC[cropKey(r.f)] || selF[r.f.id]));
+  let list = d.rows.filter(r => (evSumOf(r) > 0 || r.h > 0 || r.yield > 0 || evCost.some(k => r[k] > 0)) && (!any || selC[cropKey(r.f)] || selF[r.f.id]));
   if (by === 'frucht') {
-    const g = {}; list.forEach(r => { const k = cropKey(r.f) || '(ohne Frucht)'; const o = g[k] = g[k] || { name: k, crop: '', ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, n: 0 }; o.n++; o.ha += r.ha; ['h'].concat(evCost).forEach(c => { o[c] += r[c]; }); });
+    const g = {}; list.forEach(r => { const k = cropKey(r.f) || '(ohne Frucht)'; const o = g[k] = g[k] || { name: k, crop: '', ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, yield: 0, rev: 0, sub: 0, rent: 0, n: 0 }; o.n++; o.ha += r.ha; ['h', 'yield', 'rev', 'sub', 'rent'].concat(evCost).forEach(c => { o[c] += r[c]; }); });
     list = Object.keys(g).sort((a, b) => a.localeCompare(b, 'de')).map(k => g[k]);
   } else list = list.map(r => Object.assign({ name: dn(r.f), crop: r.f.crop || '', n: 1 }, r)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de', { numeric: true }));
-  const tot = { ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0 }; list.forEach(r => { Object.keys(tot).forEach(k => { tot[k] += r[k]; }); });
+  const tot = { ha: 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, yield: 0, rev: 0, sub: 0, rent: 0 }; list.forEach(r => { Object.keys(tot).forEach(k => { tot[k] += r[k]; }); });
   return { yr, by, list, tot, cv, miss: d.miss };
 }
 function evVal(r, k, cv) {
-  if (k === 'ha' || k === 'h') return r[k];
+  if (k === 'ha' || k === 'h' || k === 'yield') return r[k];
+  if (k === 'tha') return r.ha > 0 ? r.yield / r.ha : null;
+  if (k === 'res') return evRes(r, cv);
+  if (k === 'resha') return r.ha > 0 ? evRes(r, cv) / r.ha : null;
   if (k === 'sum') return cv(evSumOf(r));
   if (k === 'perha') return r.ha > 0 ? cv(evSumOf(r)) / r.ha : null;
   return cv(r[k]);
 }
-const evCols = () => EV_ALL.filter(c => evOn(c[0]) && !((c[0] === 'sum' || c[0] === 'perha') && !evCost.some(evOn)));
+const evCols = t => EV_ALL.filter(c => evOn(c[0]) && !((c[0] === 'sum' || c[0] === 'perha') && !evCost.some(evOn)) && !(t && ((c[0] === 'yield' || c[0] === 'tha' || c[0] === 'rev') && !(t.tot.yield > 0) || c[0] === 'sub' && !(t.tot.sub > 0) || c[0] === 'rent' && !(t.tot.rent > 0) || (c[0] === 'res' || c[0] === 'resha') && !(t.tot.yield > 0 || t.tot.sub > 0 || t.tot.rent > 0))));
+
+/* ----- Diagramme (reines SVG, keine Bibliothek) ----- */
+const EV_COL = { work: '#5e81ac', mach: '#8d6e63', diesel: '#6d6d6d', ps: '#e57373', du: '#81c784', seed: '#ffb74d' };
+const EV_NAME = { work: 'Arbeit', mach: 'Maschinen', diesel: 'Diesel', ps: 'Pflanzenschutz', du: 'Dünger', seed: 'Saatgut' };
+function donutHtml(items, centerTop, centerSub, fmtV) {
+  items = items.filter(i => i.value > 0); const tot = items.reduce((a, i) => a + i.value, 0); if (!(tot > 0)) return '<p class="hint">Keine Daten.</p>';
+  const R = 60, r = 36, C = 75; let a0 = -Math.PI / 2, paths = '';
+  items.forEach(i => {
+    const fr = i.value / tot, a1 = a0 + fr * 2 * Math.PI, big = fr > 0.5 ? 1 : 0, tt = '<title>' + esc(i.label) + ': ' + fmtV(i.value) + ' (' + fmt(fr * 100, 1) + ' %)</title>';
+    if (fr > 0.9999) paths += '<circle cx="' + C + '" cy="' + C + '" r="' + (R + r) / 2 + '" fill="none" stroke="' + i.color + '" stroke-width="' + (R - r) + '">' + tt + '</circle>';
+    else { const p = (a, rr) => (C + rr * Math.cos(a)).toFixed(2) + ' ' + (C + rr * Math.sin(a)).toFixed(2); paths += '<path d="M' + p(a0, R) + ' A' + R + ' ' + R + ' 0 ' + big + ' 1 ' + p(a1, R) + ' L' + p(a1, r) + ' A' + r + ' ' + r + ' 0 ' + big + ' 0 ' + p(a0, r) + ' Z" fill="' + i.color + '" stroke="var(--bg)" stroke-width="1">' + tt + '</path>'; }
+    a0 = a1;
+  });
+  return '<div class="donutwrap"><svg viewBox="0 0 150 150" role="img">' + paths + '<text x="75" y="76">' + esc(centerTop) + '</text><text class="s" x="75" y="90">' + esc(centerSub) + '</text></svg><div class="legend">' + items.map(i => '<div><i style="background:' + i.color + '"></i>' + esc(i.label) + ' <b>' + fmtV(i.value) + '</b> <span class="sub">' + fmt(i.value / tot * 100, 0) + ' %</span></div>').join('') + '</div></div>';
+}
+function chartsHtml(t, selC, selF, yrs) {
+  const any = Object.keys(selC).length + Object.keys(selF).length > 0, cv = t.cv, sym = curSym(dispCur());
+  const fl = db.fields.filter(f => f.ha > 0 && (!any || selC[cropKey(f)] || selF[f.id])), g = {};
+  fl.forEach(f => { const k = cropKey(f) || '(ohne Frucht)'; g[k] = (g[k] || 0) + f.ha; });
+  const haTot = fl.reduce((a, f) => a + f.ha, 0);
+  let h = '<div class="charts"><div class="chartbox"><h3>Anbaufläche nach Frucht</h3>' + donutHtml(Object.keys(g).sort((a, b) => g[b] - g[a]).map(k => ({ label: k, value: g[k], color: k === '(ohne Frucht)' ? NO_CROP_COL : colorOfCrop(k) })), fmt(haTot, 0) + ' ha', fl.length + ' Schläge', v => fmt(v, 1) + ' ha') + '</div>';
+  const cats = evCost.filter(evOn).map(k => ({ label: EV_NAME[k], value: cv(t.tot[k]), color: EV_COL[k] })), cTot = cats.reduce((a, i) => a + i.value, 0);
+  if (cTot > 0) {
+    h += '<div class="chartbox"><h3>Kosten nach Art (' + esc(t.yr) + ')</h3>' + donutHtml(cats.sort((a, b) => b.value - a.value), fmt(cTot, 0) + ' ' + sym, t.tot.ha > 0 ? fmt(cTot / t.tot.ha, 0) + ' ' + sym + ' / ha' : '', v => fmt(v, 0) + ' ' + sym) + '</div>';
+    const rows = t.list.map(r => ({ name: r.name, ha: r.ha, sum: cv(evSumOf(r)), r })).filter(x => x.sum > 0 && x.ha > 0).map(x => Object.assign(x, { pha: x.sum / x.ha })).sort((a, b) => b.pha - a.pha).slice(0, 15), mx = Math.max.apply(null, rows.map(x => x.pha).concat([1]));
+    if (rows.length) h += '<div class="chartbox" style="grid-column:1/-1"><h3>Kosten pro ha – ' + (t.by === 'frucht' ? 'je Frucht' : 'je Schlag (höchste zuerst)') + '</h3>' + rows.map(x => '<div class="hbar"><span class="nm" title="' + esc(x.name) + '">' + esc(x.name) + '</span><div class="bar" style="width:' + fmt(x.pha / mx * 100, 1).replace(',', '.') + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + ': ' + fmt(cv(x.r[k]) / x.ha, 0) + ' ' + sym + '/ha" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.r[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.pha, 0) + ' ' + sym + '</b></div>').join('') + '<div class="legend" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px">' + evCost.filter(evOn).map(k => '<span><i style="background:' + EV_COL[k] + '"></i>' + EV_NAME[k] + '</span>').join('') + '</div></div>';
+  } else h += '<div class="chartbox"><h3>Kosten nach Art</h3><p class="hint">Noch keine Kosten im Jahr ' + esc(t.yr) + ' (erledigte Aufträge, Behandlungen, Düngung, Saatgut).</p></div>';
+  /* Ergebnis pro ha: Erlös + Förderung - Kosten - Pacht */
+  if (t.tot.yield > 0 || t.tot.sub > 0 || t.tot.rent > 0) {
+    const rr = t.list.filter(r => r.ha > 0).map(r => ({ name: r.name, v: evRes(r, cv) / r.ha })).sort((a, b) => b.v - a.v).slice(0, 15), mx = Math.max.apply(null, rr.map(x => Math.abs(x.v)).concat([1]));
+    h += '<div class="chartbox" style="grid-column:1/-1"><h3>Ergebnis pro ha (Erlös + Förderung − Kosten − Pacht)</h3>' + rr.map(x => '<div class="hbar"><span class="nm" title="' + esc(x.name) + '">' + esc(x.name) + '</span><div class="bar"><span style="width:' + (Math.abs(x.v) / mx * 100).toFixed(1) + '%;background:' + (x.v >= 0 ? '#66bb6a' : '#e57373') + '"></span></div><b style="color:' + (x.v >= 0 ? 'inherit' : '#c62828') + '">' + fmt(x.v, 0) + ' ' + sym + '</b></div>').join('') + '<p class="hint" style="margin:6px 0 0">Erlös = eingelagerte Tonnen × Verkaufspreis (Grunddaten). Grün = Gewinn, rot = Verlust.</p></div>';
+  }
+  /* Kosten im Jahresvergleich */
+  const yl = (yrs || []).filter(y => /^\d{4}$/.test(y)).sort().slice(-6);
+  if (yl.length > 1) {
+    const ys = yl.map(y => { const d = evalData(y), tt = {}; evCost.forEach(k => { tt[k] = d.rows.reduce((a, r) => a + r[k], 0); }); return { y, tt, sum: evCost.filter(evOn).reduce((a, k) => a + cv(tt[k]), 0) }; }), mx = Math.max.apply(null, ys.map(x => x.sum).concat([1]));
+    if (ys.some(x => x.sum > 0)) h += '<div class="chartbox"><h3>Kosten im Jahresvergleich (alle Schläge)</h3>' + ys.map(x => '<div class="hbar"><span class="nm">' + x.y + '</span><div class="bar" style="width:' + (x.sum / mx * 100).toFixed(1) + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + '" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.tt[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.sum, 0) + ' ' + sym + '</b></div>').join('') + '</div>';
+  }
+  /* Arbeitsstunden je Mitarbeiter */
+  const hu = {}; db.jobs.filter(j => j.userId && j.startedAt && j.endedAt && dstr(j.startedAt).slice(0, 4) === t.yr).forEach(j => { hu[j.userId] = (hu[j.userId] || 0) + hrs(j.endedAt - j.startedAt); });
+  const hl = Object.keys(hu).map(u => ({ name: uName(u), v: hu[u] })).sort((a, b) => b.v - a.v);
+  if (hl.length) { const mx = hl[0].v; h += '<div class="chartbox"><h3>Auftragsstunden je Mitarbeiter (' + esc(t.yr) + ')</h3>' + hl.map(x => '<div class="hbar"><span class="nm">' + esc(x.name) + '</span><div class="bar"><span style="width:' + (x.v / mx * 100).toFixed(1) + '%;background:#5e81ac"></span></div><b>' + fmt(x.v, 1) + ' h</b></div>').join('') + '</div>'; }
+  return h + '</div>';
+}
 VIEWS.auswertung = function () {
   const years = {}; years[String(new Date().getFullYear())] = 1; db.jobs.forEach(j => { if (j.startedAt) years[dstr(j.startedAt).slice(0, 4)] = 1; }); db.entries.forEach(e => { years[String(e.date).slice(0, 4)] = 1; });
-  const yr = ui.evYear || String(new Date().getFullYear()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols();
+  const yr = ui.evYear || String(new Date().getFullYear()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols(t);
   const selC = ui.evCrops || {}, selF = ui.evFlds || {};
   let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Auswertung: Kosten pro ' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</h2><div class="tools noprint"><button class="small" data-act="evCsv">Excel (CSV)</button><button class="small" data-act="evPrint">PDF / Drucken</button></div></div>';
   h += curTools();
@@ -5535,13 +5634,15 @@ VIEWS.auswertung = function () {
   h += '<div class="cropchips"><button type="button" data-act="evClear">Alle Früchte und Schläge</button>' + Object.keys(crops).sort((a, b) => a.localeCompare(b, 'de')).map(k => '<button type="button" class="' + (selC[k] ? 'on' : '') + '" data-act="evCrop" data-k="' + esc(k) + '">' + esc(k) + '</button>').join('') + '</div>';
   h += '<div class="multilist" style="max-height:200px;overflow:auto;margin:8px 0">' + sortedFields(true).map(f => '<label class="chk"><input type="checkbox" data-evf="' + f.id + '"' + (selF[f.id] ? ' checked' : '') + '> ' + esc(dn(f)) + ' <span class="sub">' + (f.crop ? esc(f.crop) + ' · ' : '') + fmt(f.ha, 1) + ' ha</span></label>').join('') + '</div>';
   h += '<div class="tools" style="flex-wrap:wrap">' + EV_ALL.map(c => '<label class="chk"><input type="checkbox" data-evc="' + c[0] + '"' + (evOn(c[0]) ? ' checked' : '') + '> ' + c[1] + '</label>').join(' ') + '</div></div></details>';
+  h += '<details class="fold noprint" data-uidetails="proto"' + ((ui.det && ui.det.proto) ? ' open' : '') + '><summary><h2>Protokoll für Kontrollen (Pflanzenschutz &amp; Düngung)</h2></summary><div class="foldtools"><p class="hint">Alle Behandlungen und Düngungen des Jahres ' + esc(yr) + ' je Schlag mit Datum, Mittel, Grund, Menge je ha und gesamt – zum Ausdrucken oder als PDF sichern (Auswahl der Früchte/Schläge oben gilt auch hier).</p><button class="primary" data-act="protoPrint">Protokoll erstellen</button></div></details>';
+  h += chartsHtml(t, selC, selF, Object.keys(years));
   h += '<p class="hint">So wird gerechnet: <b>Arbeit</b> = Stunden der erledigten Aufträge × Stundenlohn. <b>Maschinen</b> = Einsatzstunden × Stundensatz (AfA + Reparaturen + Versicherung des Jahres geteilt durch die Einsatzstunden). <b>Diesel</b> aus den Tankungen. <b>Pflanzenschutz, Dünger</b> = Menge × Preis am Tag der Behandlung. <b>Saatgut</b> = Saatmenge × Fläche × Preis (Grunddaten, Gruppe Saatgut). <b>Summe</b> zählt nur die angehakten Kostenspalten. Beträge in ' + sym + '.</p>';
   if (!t.list.length) return h + '<p class="empty">Für diese Auswahl gibt es keine Daten. Es zählen erledigte Aufträge mit Schlag sowie Behandlungen und Düngungen im gewählten Jahr.</p></section></div>';
   const fm = (r, c) => { const v = evVal(r, c[0], cv); return v == null ? '–' : fmt(v, c[2] === 'n1' ? 1 : 0); };
-  h += '<div class="tablewrap"><table><thead><tr><th>' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</th>' + cols.map(c => '<th class="num">' + (c[0] === 'perha' ? sym + ' pro ha' : c[1]) + '</th>').join('') + '</tr></thead><tbody>';
-  t.list.forEach(r => { h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td>' + cols.map(c => '<td class="num">' + (c[0] === 'sum' ? '<b>' + fm(r, c) + '</b>' : fm(r, c)) + '</td>').join('') + '</tr>'; });
+  h += '<div class="tablewrap"><table><thead><tr><th>' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</th>' + cols.map(c => '<th class="num">' + (c[0] === 'perha' ? sym + ' pro ha' : c[0] === 'resha' ? 'Ergebnis ' + sym + '/ha' : c[1]) + '</th>').join('') + '</tr></thead><tbody>';
+  t.list.forEach(r => { h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td>' + cols.map(c => '<td class="num">' + (c[0] === 'sum' || c[0] === 'res' ? '<b>' + fm(r, c) + '</b>' : fm(r, c)) + '</td>').join('') + '</tr>'; });
   h += '<tr class="sum"><td><b>Gesamt</b></td>' + cols.map(c => '<td class="num"><b>' + fm(t.tot, c) + '</b></td>').join('') + '</tr></tbody></table></div>';
-  if (t.miss.wage || t.miss.price || t.miss.date || t.miss.rate) h += '<p class="hint">Hinweis: ' + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0. ' : '') + (t.miss.date ? t.miss.date + ' Schläge mit Saatmenge, aber ohne Aussaatdatum, sind beim Saatgut nicht enthalten. ' : '') + (t.miss.rate ? t.miss.rate + ' Schläge mit Sorte und Aussaatdatum, aber ohne Saatmenge, zählen beim Saatgut mit 0.' : '') + '</p>';
+  if (t.miss.wage || t.miss.price || t.miss.date || t.miss.rate || t.miss.grain) h += '<p class="hint">Hinweis: ' + (t.miss.grain ? t.miss.grain + ' Ladungen ohne Verkaufspreis (Grunddaten → Getreide / Verkauf) zählen mit 0 Erlös. ' : '') + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0. ' : '') + (t.miss.date ? t.miss.date + ' Schläge mit Saatmenge, aber ohne Aussaatdatum, sind beim Saatgut nicht enthalten. ' : '') + (t.miss.rate ? t.miss.rate + ' Schläge mit Sorte und Aussaatdatum, aber ohne Saatmenge, zählen beim Saatgut mit 0.' : '') + '</p>';
   return h + '</section></div>';
 };
 
@@ -6105,8 +6206,24 @@ $('fileImport').addEventListener('change', function () {
 const A = {};
 A.zTrack = d => { ui.zShift = d.id; render(); const c = $('zMapCard'); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth' }); };
 A.tab = d => { if (d.tab === 'grunddaten' && ui.tab !== 'grunddaten' && ui.tab !== 'maschinen' && !ui.gdTab && can('mach')) d = { tab: 'maschinen' }; if (d.tab === 'maschinen' && ui.tab === 'maschinen') ui.machId = ''; ui.tab = d.tab; if (d.tab === 'kartei' && !selectedId) ui.zoomMe = true; render(); };
+A.protoPrint = () => {
+  const yr = ui.evYear || String(new Date().getFullYear()), selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
+  const fl = sortedFields(true).filter(f => !any || selC[cropKey(f)] || selF[f.id]);
+  let body = '<h1>Protokoll Pflanzenschutz &amp; Düngung ' + esc(yr) + '</h1><div class="sub">Erstellt am ' + dateDE(today()) + '</div>', n = 0;
+  fl.forEach(f => {
+    const es = db.entries.filter(e => e.fieldId === f.id && (e.type === 'Pflanzenschutz' || e.type === 'Düngung') && String(e.date).slice(0, 4) === yr).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    if (!es.length) return; n++;
+    body += '<h2 style="font-size:14px;margin:14px 0 2px">' + esc(dn(f)) + ' · ' + fmt(f.ha, 2) + ' ha' + (f.crop ? ' · ' + esc(f.crop) : '') + (f.variety ? ' · ' + esc(f.variety) : '') + (f.sowDate ? ' · Aussaat ' + dateDE(f.sowDate) : '') + '</h2>';
+    body += '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>' + ['Datum', 'Art', 'Mittel / Dünger', 'Grund', 'Menge je ha', 'Menge gesamt', 'ha', 'Bearbeiter'].map(x => '<th style="border:1px solid #000;padding:2px 4px;text-align:left">' + x + '</th>').join('') + '</tr></thead><tbody>' +
+      es.map(e => { const ha = e.ha || f.ha || 0, per = e.amount > 0 && ha > 0 ? fmt(e.amount / ha, 2) + ' ' + esc(e.unit || '') : ''; return '<tr>' + [dateDE(e.date), e.type, esc(e.name), esc(e.reason || ''), per, e.amount > 0 ? fmt(e.amount, 2) + ' ' + esc(e.unit || '') : '', ha ? fmt(ha, 2) : '', e.userId ? esc(uName(e.userId)) : ''].map(x => '<td style="border:1px solid #000;padding:2px 4px">' + x + '</td>').join('') + '</tr>'; }).join('') + '</tbody></table>';
+  });
+  if (!n) { toast('Keine Behandlungen oder Düngungen im Jahr ' + yr + ' für diese Auswahl.'); return; }
+  const sh = $('printSheet'); sh.className = 'land';
+  sh.innerHTML = '<div class="pbar"><button class="primary" id="prDo">Drucken / als PDF sichern</button><button id="prClose">Schließen</button></div><div class="pmapwrap" style="max-width:none">' + body + '</div>';
+  document.body.classList.add('printing'); $('prClose').onclick = closePrint; $('prDo').onclick = () => window.print();
+};
 A.evCsv = () => {
-  const t = evalTable(), cv = t.cv, cols = evCols(), rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht'].concat(cols.map(c => c[1])).concat(['Währung'])];
+  const t = evalTable(), cv = t.cv, cols = evCols(t), rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht'].concat(cols.map(c => c[1])).concat(['Währung'])];
   const line = r => [r.name, r.crop || ''].concat(cols.map(c => { const v = evVal(r, c[0], cv); return v == null ? '' : dnum(v); })).concat([curSym(dispCur())]);
   t.list.forEach(r => rows.push(line(r))); rows.push(line(Object.assign({ name: 'Gesamt', crop: '' }, t.tot)));
   csvDownload('auswertung-' + t.yr + '.csv', rows);

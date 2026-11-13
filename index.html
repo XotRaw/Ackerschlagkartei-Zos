@@ -395,6 +395,11 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
       </div>
     </section>
 
+    <section id="soilSec">
+      <details id="soilBox" class="fold" data-uidetails="soilBox"><summary><b>Bodenkarte (Düngerwerte)</b></summary>
+        <div id="soilCtl" style="margin-top:6px"></div>
+      </details>
+    </section>
     <section>
       <h2>Schläge</h2>
       <div class="tools" id="nameModes" style="margin-bottom:6px"></div>
@@ -3445,6 +3450,36 @@ function placeMapTools() {
   } catch (e) { /* Knopf bleibt in der Leiste */ }
 }
 buildLayerControl();
+
+/* Bodenkarte: Jahr + Nährstoff direkt in der Schlagkartei wählen */
+function soilUI() {
+  const box = document.getElementById('soilCtl'); if (!box) return;
+  const KEYS = [['ph', 'pH'], ['p', 'P₂O₅'], ['k', 'K₂O'], ['mg', 'Mg']], YRS = [['19', '2019 (Sektoren)'], ['21', '2021 (Punkte)']];
+  const lay = (y, k) => y === '19' ? soil19Layer(k) : soilLayer(k);
+  const cur = () => { for (const y of ['19', '21']) for (const [k] of KEYS) if (map.hasLayer(lay(y, k))) return [y, k]; return null; };
+  const pick = (y, k) => { YRS.forEach(([yy]) => KEYS.forEach(([kk]) => { const l = lay(yy, kk); if (map.hasLayer(l)) map.removeLayer(l); })); if (y && k) { map.addLayer(lay(y, k)); } };
+  let lastY = '19';
+  const draw = () => {
+    const c = cur(); if (c) lastY = c[0];
+    const btn = (on, txt, act) => '<button type="button" class="small' + (on ? ' on' : '') + '" style="' + (on ? 'background:#3b6b2a;color:#fff;' : '') + '" data-soil="' + act + '">' + txt + '</button> ';
+    let h = '<div class="sub" style="margin-bottom:4px">Jahr</div><div class="tools" style="margin-bottom:8px">' + YRS.map(([y, t]) => btn(lastY === y, t, 'y' + y)).join('') + '</div>';
+    h += '<div class="sub" style="margin-bottom:4px">Wert auf der Karte färben</div><div class="tools" style="margin-bottom:8px">' + KEYS.map(([k, t]) => btn(c && c[1] === k, t, 'k' + k)).join('') + btn(!c, 'Aus', 'off') + '</div>';
+    if (c) {
+      const names = c[1] === 'ph' ? S19_REACT : S19_CLS;
+      h += '<div style="display:flex;flex-wrap:wrap;gap:6px 10px;font-size:12px;margin-bottom:6px">' + names.map((n, i) => '<span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;background:' + SOIL_COL[i] + ';border:1px solid #333"></span> ' + n + '</span>').join('') + '</div>';
+      h += '<p class="sub" style="margin:0">Auf der Karte zoomen (ab Stufe 15 stehen die Zahlen in den Sektoren), Sektor antippen für alle Werte. ' + (c[1] === 'ph' ? 'Farbe = Bodenreaktion.' : 'Werte in mg/100 g, Farbe = Versorgungsklasse.') + '</p>';
+    } else h += '<p class="sub" style="margin:0">Wähle einen Nährstoff, dann färbt sich die Karte nach den Bodenproben.</p>';
+    box.innerHTML = h;
+  };
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-soil]'); if (!b) return; const v = b.dataset.soil, c = cur();
+    if (v === 'off') pick(); else if (v[0] === 'y') { lastY = v.slice(1); if (c) pick(lastY, c[1]); } else { pick(lastY, v.slice(1)); if (!c) try { map.fitBounds(L.latLngBounds(SOIL19.sect.map(p => [p[10][0][1], p[10][0][0]])), { maxZoom: 15, padding: [20, 20] }); } catch (x) { /* ohne Zoom */ } }
+    draw();
+  });
+  let t = null; const later = () => { clearTimeout(t); t = setTimeout(draw, 50); };
+  map.on('overlayadd overlayremove', later); draw();
+}
+try { soilUI(); } catch (e) { /* Karte noch nicht bereit */ }
 L.control.scale({ metric: true, imperial: false }).addTo(map);
 const group = L.featureGroup().addTo(map);
 const editGroup = L.featureGroup().addTo(map);

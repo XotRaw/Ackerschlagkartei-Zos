@@ -176,6 +176,9 @@
   .fields li input[type=checkbox] { pointer-events: none; width: 20px; height: 20px; }
   .tag.warn { color: var(--warn); } .tag.soon { color: var(--c-hof); } .tag.ok { color: var(--c-feld); }
   #fieldInfo { border: 1px solid var(--accent); border-radius: 4px; padding: 10px; background: var(--bg); }
+  #fieldInfo.fimin > :not(#fiTop), #fieldInfo.fimin .fibody { display: none !important; }
+  #fieldInfo .fihead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  #fieldInfo .fihead h2 { margin: 0; }
   #fieldInfo h2 { color: var(--ink); text-transform: none; letter-spacing: 0; font-size: 15px; }
   @media (max-width: 800px) { .page { padding: 10px; } .card { padding: 12px; } }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
@@ -3434,6 +3437,7 @@ function azzpLayer(key) {
   g.on('add', () => { upd(); map.on('zoomend', upd); }); g.on('remove', () => { map.off('zoomend', upd); });
   return (azLayers[key] = g);
 }
+function soilActive() { try { return [soilLayers, soil19Layers, azLayers].some(o => Object.keys(o).some(k => map.hasLayer(o[k]))); } catch (e) { return false; } }
 let layerCtl = null, customLayers = [];
 function buildLayerControl() {
   try { if (layerCtl && layerCtl.remove) layerCtl.remove(); customLayers.forEach(l => { try { map.removeLayer(l); } catch (e) { /* egal */ } }); } catch (e) { /* egal */ }
@@ -3501,7 +3505,8 @@ function soilUI() {
     draw();
   });
   let t = null; const later = () => { clearTimeout(t); t = setTimeout(draw, 50); };
-  map.on('overlayadd overlayremove', later); draw();
+  map.on('overlayadd overlayremove', () => { later(); try { if (selectedId) renderFieldInfo(); } catch (e) { /* noch nicht bereit */ } }); draw();
+  const det = document.getElementById('soilBox'); if (det) det.addEventListener('toggle', () => { if (!det.open && cur()) { pick(); draw(); } });
 }
 try { soilUI(); } catch (e) { /* Karte noch nicht bereit */ }
 L.control.scale({ metric: true, imperial: false }).addTo(map);
@@ -4017,7 +4022,7 @@ function lpApply() { let n = 0; db.fields.forEach(f => { if (f.lp) return; const
 const LP_SOIL = { 'lehká': 'leicht', 'střední': 'mittel', 'těžká': 'schwer' };
 const LP_ROW = ['Mais', 'Zuckerrüben', 'Kartoffeln', 'Soja', 'Sonnenblumen'];
 function lpHtml(f) {
-  const sh = soilHtml(f) + soil19Html(f) + azzpHtml(f), p = f && f.lp; if (!p) return sh;
+  const sh = soilActive() ? soilHtml(f) + soil19Html(f) + azzpHtml(f) : '', p = f && f.lp; if (!p) return sh;
   const t = [p.zod ? 'nitratgefährdete Zone' : 'nicht nitratgefährdet', p.zone && p.zone !== '-' ? 'Aufbringungszone ' + p.zone.replace(/\.$/, '') : null, p.soil ? 'Boden ' + (LP_SOIL[p.soil] || p.soil) : null,
     p.slope != null ? 'Hang ' + fmt(p.slope, 1) + '°' : null, p.water != null ? 'Gewässer ' + fmt(p.water, 0) + ' m' : null, p.ero && p.ero !== 'NEO' ? 'Erosion ' + p.ero + (p.smP != null ? ' (SEO ' + p.seoP + ' %, SEO+MEO-VR ' + p.smP + ' % der Fläche' + (p.maxSm > 0 ? ', größte zusammenhängende Fläche davon ' + fmt(p.maxSm, 1) + ' ha' : '') + ')' : '') : null, p.melio ? 'drainiert' : null];
   const w = [];
@@ -4028,10 +4033,10 @@ function lpHtml(f) {
 }
 function renderFieldInfo() {
   const f = fieldById(selectedId), box = $('fieldInfo');
-  box.hidden = !f || ui.multi; if (!f || ui.multi) return;
+  box.hidden = !f || ui.multi; if (!f || ui.multi) return; box.classList.toggle('fimin', !!ui.fiMin);
   const dt = fieldDistText(f);
   const anbau = [f.variety ? 'Sorte ' + f.variety : null, f.sowDate ? 'Aussaat ' + dateDE(f.sowDate) : null, f.seedRate ? fmt(f.seedRate, 1) + ' kg/ha' : null].filter(Boolean).map(esc).join(' · ');
-  $('fiTop').innerHTML = '<h2>' + esc(dn(f)) + '</h2><p style="margin:0 0 6px">' + fmt(f.ha, 2) + ' ha' + (f.crop ? ' · ' + esc(f.crop) : '') + (dt ? ' · <span class="dist">' + esc(dt) + '</span>' : '') + '</p>' + (anbau ? '<p class="sub" style="margin:0 0 6px">' + anbau + '</p>' : '') + lpHtml(f) + workHtml(f) + ((f.cuts || []).length ? '<div class="sub" style="margin:0 0 6px">' + f.cuts.map(c => 'Aussparung ' + esc(c.name) + ': −' + fmtArea(c.ha) + (canW('draw') ? ' <button class="small" data-act="cutUndo" data-id="' + c.id + '">Rückgängig</button>' : '')).join('<br>') + '</div>' : '') + '<div class="tools"><a class="btn primary" href="' + navHref(f) + '" target="_blank" rel="noopener">Navigation starten (Google Maps)</a></div>' + (dt ? '' : '<p class="hint">Entfernung erscheint, sobald dein Standort bekannt ist (Knopf „Mein Standort“).</p>');
+  $('fiTop').innerHTML = '<div class="fihead"><h2>' + esc(dn(f)) + '</h2><span style="white-space:nowrap"><button type="button" class="small" data-act="fiMin" title="Ein-/Ausklappen">' + (ui.fiMin ? '▸ Aufklappen' : '▾ Einklappen') + '</button> <button type="button" class="small" data-act="fiClose" title="Feld abwählen">✕</button></span></div><p style="margin:4px 0 6px">' + fmt(f.ha, 2) + ' ha' + (f.crop ? ' · ' + esc(f.crop) : '') + (dt ? ' · <span class="dist">' + esc(dt) + '</span>' : '') + '</p>' + (anbau ? '<p class="sub" style="margin:0 0 6px">' + anbau + '</p>' : '') + lpHtml(f) + workHtml(f) + ((f.cuts || []).length ? '<div class="sub" style="margin:0 0 6px">' + f.cuts.map(c => 'Aussparung ' + esc(c.name) + ': −' + fmtArea(c.ha) + (canW('draw') ? ' <button class="small" data-act="cutUndo" data-id="' + c.id + '">Rückgängig</button>' : '')).join('<br>') + '</div>' : '') + '<div class="tools"><a class="btn primary" href="' + navHref(f) + '" target="_blank" rel="noopener">Navigation starten (Google Maps)</a></div>' + (dt ? '' : '<p class="hint">Entfernung erscheint, sobald dein Standort bekannt ist (Knopf „Mein Standort“).</p>');
 }
 /* ----- Anbau: Frucht, Sorte, Aussaat, Saatmenge ----- */
 const QUICK_CROPS = ['Weizen', 'Raps', 'Gerste', 'Sommergerste', 'Zuckerrüben', 'Mais', 'Roggen', 'Brache'];
@@ -6356,6 +6361,8 @@ A.fuelEdit = d => { const f = db.fuel.find(x => x.id === d.id); if (f && canW('e
 A.cropQuick = d => { if ([...$('cfCrop').options].every(o => o.value !== d.crop)) return; $('cfCrop').value = d.crop; };
 A.multiToggle = () => { if (!canW('crop')) return; ui.multi = !ui.multi; ui.msel = {}; stopEdit(); render(); };
 A.multiAll = () => { listedFields().forEach(f => { ui.msel[f.id] = 1; }); renderKartei(); };
+A.fiMin = () => { ui.fiMin = !ui.fiMin; renderFieldInfo(); };
+A.fiClose = () => { stopEdit(); selectedId = null; render(); };
 A.multiNone = () => { ui.msel = {}; renderKartei(); };
 A.multiQuick = d => { $('mfCrop').value = d.crop; renderKartei(); refreshVarList(d.crop); };
 A.multiGo = () => {

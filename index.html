@@ -321,7 +321,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
   <label>Angemeldet als (Testansicht)<select id="meSel"></select></label>
   <div class="langwrap">
   <button type="button" id="reloadBtn" class="langsel" title="Seite neu laden / Obnovit stránku / Reload" aria-label="Aktualisieren" style="cursor:pointer;font-size:18px;padding:4px 10px">🔄</button>
-  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.37</span>
+  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.38</span>
   <label class="langsel" title="Währung / Měna / Currency"><span>💱</span><select id="curSel" aria-label="Währung"><option value="EUR">€ EUR</option><option value="CZK">Kč CZK</option></select></label>
   <label class="langsel" title="Sprache / Jazyk / Language"><span>🌐</span><select id="langSel" aria-label="Sprache"><option value="de">Deutsch</option><option value="cs">Čeština</option><option value="en">English</option></select></label>
   </div>
@@ -437,6 +437,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
       <div class="chips" id="varChips" style="margin-bottom:6px"></div>
       <details id="cropVis" style="margin-bottom:6px"><summary>Früchte auf der Karte ein-/ausblenden</summary><div id="cropVisList"></div></details>
       <p class="sub" id="fieldSum" style="margin:0 0 6px"></p>
+      <details id="fieldListBox" class="fold" open><summary><b>Felderliste</b> <span class="sub">(antippen zum Ein-/Ausklappen)</span></summary>
       <input id="fieldSearch" type="search" placeholder="Schlag oder Frucht suchen …" aria-label="Schläge suchen" style="margin-bottom:8px">
       <div id="multiBox" class="banner" hidden style="margin-bottom:8px">
         <div id="multiCount" style="font-weight:600;margin-bottom:6px"></div>
@@ -451,6 +452,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
         </div>
       </div>
       <ul class="fields" id="fieldList"></ul>
+      </details>
       <p class="hint" id="editHint" hidden>Punkte ändern: Feld antippen, dann auf der Karte das Stift-Symbol wählen. Es lässt sich immer nur das angetippte Feld bearbeiten. Überlappungen mit anderen Feldern werden automatisch abgeschnitten.</p>
       <p class="hint" id="fieldHint">Zeichne auf der Karte mit dem Polygon-Werkzeug (Fünfeck-Symbol) deine Fläche. Danach speicherst du sie hier mit Namen. Sind hier keine Schläge, obwohl du welche angelegt hast: Die Daten liegen getrennt je Browser bzw. App. Dann in der Version mit den Daten „Sicherung“ speichern und hier mit „Einlesen“ laden.</p>
     </section>
@@ -4727,15 +4729,17 @@ function dieselIntervals(mid) {
   }
   return out;
 }
-function dieselByField(year) {
+function dieselByField(year, pred) {
   const map = {}, rest = { l: 0, h: 0, cost: 0 };
   db.machines.forEach(m => dieselIntervals(m.id).forEach(iv => {
-    if (year && dstr(iv.to.ts).slice(0, 4) !== year) return;
+    const dd = dstr(iv.to.ts);
+    if (!pred && year && dd.slice(0, 4) !== year) return;
     iv.parts.forEach(p => {
+      if (pred && !pred(dd, p.fieldId)) return;
       const k = (p.fieldId || '') + '|' + p.title, r = map[k] = map[k] || { fieldId: p.fieldId, title: p.title, h: 0, l: 0, ha: 0, cost: 0 };
       r.h += p.h; r.l += p.liters; r.ha += p.ha; r.cost += p.liters * iv.price;
     });
-    rest.l += iv.restL; rest.h += iv.restH; rest.cost += iv.restL * iv.price;
+    if (!pred) { rest.l += iv.restL; rest.h += iv.restH; rest.cost += iv.restL * iv.price; }
   }));
   return { rows: Object.keys(map).map(k => map[k]).sort((a, b) => b.l - a.l), rest };
 }
@@ -5624,17 +5628,29 @@ function machRate(id, yr) {
   const hours = db.jobs.filter(j => j.startedAt && j.endedAt && (j.tractorId === id || j.implId === id) && dstr(j.startedAt).slice(0, 4) === yr).reduce((x, j) => x + hrs(j.endedAt - j.startedAt), 0);
   return (machRateCache[k] = hours > 0 ? total / hours : 0);
 }
+/* ----- Wirtschaftsjahr (1.1. oder 1.7.) und Kultur (Aussaat bis Ernte) ----- */
+function fyStart() { return db.fyStart === 7 ? 7 : 1; }
+function fyOf(d) { const y = +String(d).slice(0, 4), m = +String(d).slice(5, 7); return String(fyStart() === 7 && m < 7 ? y - 1 : y); }
+function fyRange(y) { return fyStart() === 7 ? [y + '-07-01', (+y + 1) + '-06-30'] : [y + '-01-01', y + '-12-31']; }
+function fyLabel(y) { return fyStart() === 7 ? y + '/' + String(+y + 1).slice(2) : String(y); }
+function evBasis() { return ui.evBasis === 'kultur' ? 'kultur' : 'wj'; }
+function evYL(y) { return evBasis() === 'wj' ? fyLabel(y) : String(y); }
+function evInYr(d, yr) { d = String(d).slice(0, 10); if (evBasis() === 'kultur') return d.slice(0, 4) === yr; const r = fyRange(yr); return d >= r[0] && d <= r[1]; }
 function evalData(yr) {
+  const basis = evBasis(), rng = fyRange(yr), lastLoad = {};
+  db.loads.forEach(l => { if (l.fieldId && l.tons > 0 && String(l.date).slice(0, 4) === yr && (!lastLoad[l.fieldId] || l.date > lastLoad[l.fieldId])) lastLoad[l.fieldId] = l.date; });
+  const win = f => { if (basis !== 'kultur') return rng; const end = lastLoad[f.id] || yr + '-12-31'; return [f.sowDate && f.sowDate <= end && f.sowDate >= (+yr - 1) + '-07-01' ? f.sowDate : yr + '-01-01', end]; };
+  const inW = (d, f) => { d = String(d).slice(0, 10); const w = win(f); return d >= w[0] && d <= w[1]; };
   Object.keys(machRateCache).forEach(k => delete machRateCache[k]);
   const rows = {}, miss = { price: 0, wage: 0, date: 0, rate: 0, grain: 0 };
   db.fields.forEach(f => { rows[f.id] = { f, ha: f.ha || 0, h: 0, work: 0, mach: 0, diesel: 0, ps: 0, du: 0, seed: 0, yield: 0, rev: 0, sub: (f.subHa || 0) * (f.ha || 0), rent: (f.rentHa || 0) * (f.ha || 0) }; });
-  db.jobs.filter(j => j.fieldId && j.startedAt && j.endedAt && dstr(j.startedAt).slice(0, 4) === yr).forEach(j => {
-    const r = rows[j.fieldId]; if (!r) return;
+  db.jobs.filter(j => j.fieldId && j.startedAt && j.endedAt).forEach(j => {
+    const r = rows[j.fieldId]; if (!r || !inW(dstr(j.startedAt), r.f)) return;
     const h = hrs(j.endedAt - j.startedAt), u = db.users.find(x => x.id === j.userId);
     r.h += h; if (u && u.wage > 0) r.work += h * u.wage; else miss.wage++;
-    [j.tractorId, j.implId].forEach(id => { if (id) r.mach += h * machRate(id, yr); });
+    [j.tractorId, j.implId].forEach(id => { if (id) r.mach += h * machRate(id, dstr(j.startedAt).slice(0, 4)); });
   });
-  db.entries.filter(e => (e.type === 'Pflanzenschutz' || e.type === 'Düngung') && String(e.date).slice(0, 4) === yr && rows[e.fieldId] && e.amount > 0).forEach(e => {
+  db.entries.filter(e => (e.type === 'Pflanzenschutz' || e.type === 'Düngung') && rows[e.fieldId] && inW(e.date, rows[e.fieldId].f) && e.amount > 0).forEach(e => {
     const kind = e.type === 'Pflanzenschutz' ? 'ps' : 'du', it = db.items.find(i => i.kind === kind && norm(i.name) === norm(e.name));
     let pr = it ? priceOf('item:' + it.id, e.date, baseCur()) : null, price = pr ? pr.price : (it && it.price > 0 ? it.price : 0);
     if (!(price > 0)) { miss.price++; return; }
@@ -5644,7 +5660,7 @@ function evalData(yr) {
   db.fields.forEach(f => {
     if (!(f.seedRate > 0) && !f.variety) return;
     if (!f.sowDate) { if (f.seedRate > 0) miss.date++; return; }
-    if (f.sowDate.slice(0, 4) !== yr) return;
+    if (!inW(f.sowDate, f)) return;
     if (!(f.seedRate > 0)) { miss.rate++; return; }
     const key = norm(f.variety || ''), sas = db.items.filter(x => x.kind === 'sa'), fc = norm(f.crop || '');
     const g = sas.find(x => key && norm(x.name) === key) || sas.find(x => key && (norm(x.name).indexOf(key) >= 0 || key.indexOf(norm(x.name)) >= 0)) || sas.find(x => x.cat && fc && (norm(x.cat) === fc || fc.indexOf(norm(x.cat)) >= 0));
@@ -5654,11 +5670,11 @@ function evalData(yr) {
     const kgE = kgPerEinheit(g), per = g.unit === 't' ? price / 1000 : g.unit === 'dt' ? price / 100 : g.unit === 'kg' ? price : (g.unit === 'Einheit' || g.unit === 'Sack') && kgE > 0 ? price / kgE : price;
     rows[f.id].seed += f.seedRate * (f.ha || 0) * per;
   });
-  db.loads.filter(l => l.fieldId && rows[l.fieldId] && String(l.date).slice(0, 4) === yr && l.tons > 0).forEach(l => {
+  db.loads.filter(l => l.fieldId && rows[l.fieldId] && l.tons > 0 && (basis === 'kultur' ? String(l.date).slice(0, 4) === yr : inW(l.date, rows[l.fieldId].f))).forEach(l => {
     const r = rows[l.fieldId], it = db.items.find(i => i.id === l.itemId); r.yield += l.tons;
     const perT = it ? grainPerT(it) : null; if (perT > 0) r.rev += l.tons * perT; else miss.grain++;
   });
-  try { dieselByField(yr).rows.forEach(d => { if (d.fieldId && rows[d.fieldId]) rows[d.fieldId].diesel += d.cost || 0; }); } catch (e) { /* ohne Diesel */ }
+  try { dieselByField('', (d, fid) => !!(rows[fid] && inW(d, rows[fid].f))).rows.forEach(d => { if (d.fieldId && rows[d.fieldId]) rows[d.fieldId].diesel += d.cost || 0; }); } catch (e) { /* ohne Diesel */ }
   return { rows: Object.keys(rows).map(k => rows[k]), miss };
 }
 const EV_ALL = [['ha', 'Fläche ha', 'n1'], ['h', 'Stunden', 'n1'], ['work', 'Arbeit', 'c'], ['mach', 'Maschinen', 'c'], ['diesel', 'Diesel', 'c'], ['ps', 'Pflanzenschutz', 'c'], ['du', 'Dünger', 'c'], ['seed', 'Saatgut', 'c'], ['sum', 'Summe', 'c'], ['perha', 'pro ha', 'c'], ['yield', 'Ertrag t', 'n1'], ['tha', 'Ertrag t/ha', 'n1'], ['rev', 'Erlös', 'c'], ['sub', 'Förderung', 'c'], ['rent', 'Pacht', 'c'], ['res', 'Ergebnis', 'c'], ['resha', 'Ergebnis pro ha', 'c']];
@@ -5668,7 +5684,7 @@ const evOn = k => !ui.evCols || ui.evCols[k] !== false;
 const evCost = ['work', 'mach', 'diesel', 'ps', 'du', 'seed'];
 const evSumOf = r => evCost.filter(evOn).reduce((a, k) => a + r[k], 0);
 function evalTable() {
-  const yr = ui.evYear || String(new Date().getFullYear()), by = ui.evBy || 'schlag';
+  const yr = ui.evYear || (evBasis() === 'wj' ? fyOf(today()) : String(new Date().getFullYear())), by = ui.evBy || 'schlag';
   const d = evalData(yr), cv = v => conv(v, baseCur(), dispCur());
   const selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
   let list = d.rows.filter(r => (evSumOf(r) > 0 || r.h > 0 || r.yield > 0 || evCost.some(k => r[k] > 0)) && (!any || selC[cropKey(r.f)] || selF[r.f.id]));
@@ -5712,10 +5728,10 @@ function chartsHtml(t, selC, selF, yrs) {
   let h = '<div class="charts"><div class="chartbox"><h3>Anbaufläche nach Frucht</h3>' + donutHtml(Object.keys(g).sort((a, b) => g[b] - g[a]).map(k => ({ label: k, value: g[k], color: k === '(ohne Frucht)' ? NO_CROP_COL : colorOfCrop(k) })), fmt(haTot, 0) + ' ha', fl.length + ' Schläge', v => fmt(v, 1) + ' ha') + '</div>';
   const cats = evCost.filter(evOn).map(k => ({ label: EV_NAME[k], value: cv(t.tot[k]), color: EV_COL[k] })), cTot = cats.reduce((a, i) => a + i.value, 0);
   if (cTot > 0) {
-    h += '<div class="chartbox"><h3>Kosten nach Art (' + esc(t.yr) + ')</h3>' + donutHtml(cats.sort((a, b) => b.value - a.value), fmt(cTot, 0) + ' ' + sym, t.tot.ha > 0 ? fmt(cTot / t.tot.ha, 0) + ' ' + sym + ' / ha' : '', v => fmt(v, 0) + ' ' + sym) + '</div>';
+    h += '<div class="chartbox"><h3>Kosten nach Art (' + esc(evYL(t.yr)) + ')</h3>' + donutHtml(cats.sort((a, b) => b.value - a.value), fmt(cTot, 0) + ' ' + sym, t.tot.ha > 0 ? fmt(cTot / t.tot.ha, 0) + ' ' + sym + ' / ha' : '', v => fmt(v, 0) + ' ' + sym) + '</div>';
     const rows = t.list.map(r => ({ name: r.name, ha: r.ha, sum: cv(evSumOf(r)), r })).filter(x => x.sum > 0 && x.ha > 0).map(x => Object.assign(x, { pha: x.sum / x.ha })).sort((a, b) => b.pha - a.pha).slice(0, 15), mx = Math.max.apply(null, rows.map(x => x.pha).concat([1]));
     if (rows.length) h += '<div class="chartbox" style="grid-column:1/-1"><h3>Kosten pro ha – ' + (t.by === 'frucht' ? 'je Frucht' : 'je Schlag (höchste zuerst)') + '</h3>' + rows.map(x => '<div class="hbar"><span class="nm" title="' + esc(x.name) + '">' + esc(x.name) + '</span><div class="bar" style="width:' + fmt(x.pha / mx * 100, 1).replace(',', '.') + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + ': ' + fmt(cv(x.r[k]) / x.ha, 0) + ' ' + sym + '/ha" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.r[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.pha, 0) + ' ' + sym + '</b></div>').join('') + '<div class="legend" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px">' + evCost.filter(evOn).map(k => '<span><i style="background:' + EV_COL[k] + '"></i>' + EV_NAME[k] + '</span>').join('') + '</div></div>';
-  } else h += '<div class="chartbox"><h3>Kosten nach Art</h3><p class="hint">Noch keine Kosten im Jahr ' + esc(t.yr) + ' (erledigte Aufträge, Behandlungen, Düngung, Saatgut).</p></div>';
+  } else h += '<div class="chartbox"><h3>Kosten nach Art</h3><p class="hint">Noch keine Kosten im Jahr ' + esc(evYL(t.yr)) + ' (erledigte Aufträge, Behandlungen, Düngung, Saatgut).</p></div>';
   /* Ergebnis pro ha: Erlös + Förderung - Kosten - Pacht */
   if (t.tot.yield > 0 || t.tot.sub > 0 || t.tot.rent > 0) {
     const rr = t.list.filter(r => r.ha > 0).map(r => ({ name: r.name, v: evRes(r, cv) / r.ha })).sort((a, b) => b.v - a.v).slice(0, 15), mx = Math.max.apply(null, rr.map(x => Math.abs(x.v)).concat([1]));
@@ -5725,29 +5741,48 @@ function chartsHtml(t, selC, selF, yrs) {
   const yl = (yrs || []).filter(y => /^\d{4}$/.test(y)).sort().slice(-6);
   if (yl.length > 1) {
     const ys = yl.map(y => { const d = evalData(y), tt = {}; evCost.forEach(k => { tt[k] = d.rows.reduce((a, r) => a + r[k], 0); }); return { y, tt, sum: evCost.filter(evOn).reduce((a, k) => a + cv(tt[k]), 0) }; }), mx = Math.max.apply(null, ys.map(x => x.sum).concat([1]));
-    if (ys.some(x => x.sum > 0)) h += '<div class="chartbox"><h3>Kosten im Jahresvergleich (alle Schläge)</h3>' + ys.map(x => '<div class="hbar"><span class="nm">' + x.y + '</span><div class="bar" style="width:' + (x.sum / mx * 100).toFixed(1) + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + '" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.tt[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.sum, 0) + ' ' + sym + '</b></div>').join('') + '</div>';
+    if (ys.some(x => x.sum > 0)) h += '<div class="chartbox"><h3>Kosten im Jahresvergleich (alle Schläge)</h3>' + ys.map(x => '<div class="hbar"><span class="nm">' + esc(evYL(x.y)) + '</span><div class="bar" style="width:' + (x.sum / mx * 100).toFixed(1) + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + '" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.tt[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.sum, 0) + ' ' + sym + '</b></div>').join('') + '</div>';
   }
   /* Arbeitsstunden je Mitarbeiter */
-  const hu = {}; db.jobs.filter(j => j.userId && j.startedAt && j.endedAt && dstr(j.startedAt).slice(0, 4) === t.yr).forEach(j => { hu[j.userId] = (hu[j.userId] || 0) + hrs(j.endedAt - j.startedAt); });
+  const hu = {}; db.jobs.filter(j => j.userId && j.startedAt && j.endedAt && evInYr(dstr(j.startedAt), t.yr)).forEach(j => { hu[j.userId] = (hu[j.userId] || 0) + hrs(j.endedAt - j.startedAt); });
   const hl = Object.keys(hu).map(u => ({ name: uName(u), v: hu[u] })).sort((a, b) => b.v - a.v);
-  if (hl.length) { const mx = hl[0].v; h += '<div class="chartbox"><h3>Auftragsstunden je Mitarbeiter (' + esc(t.yr) + ')</h3>' + hl.map(x => '<div class="hbar"><span class="nm">' + esc(x.name) + '</span><div class="bar"><span style="width:' + (x.v / mx * 100).toFixed(1) + '%;background:#5e81ac"></span></div><b>' + fmt(x.v, 1) + ' h</b></div>').join('') + '</div>'; }
+  if (hl.length) { const mx = hl[0].v; h += '<div class="chartbox"><h3>Auftragsstunden je Mitarbeiter (' + esc(evYL(t.yr)) + ')</h3>' + hl.map(x => '<div class="hbar"><span class="nm">' + esc(x.name) + '</span><div class="bar"><span style="width:' + (x.v / mx * 100).toFixed(1) + '%;background:#5e81ac"></span></div><b>' + fmt(x.v, 1) + ' h</b></div>').join('') + '</div>'; }
   return h + '</div>';
 }
+function lagerWjHtml(t, sym) {
+  if (evBasis() !== 'wj') return '';
+  const rg = fyRange(t.yr), G = [['ps', 'Pflanzenschutz'], ['du', 'Dünger'], ['sa', 'Saatgut'], ['gr', 'Getreide']], o = {};
+  G.forEach(g => { o[g[0]] = { a: 0, e: 0 }; });
+  db.items.forEach(it => {
+    if (!o[it.kind]) return;
+    const st = d => db.moves.filter(m => m.itemId === it.id && m.date < d).reduce((a, m) => a + m.delta, 0);
+    const val = (d, q) => { if (!(q > 0)) return 0; if (it.kind === 'gr') { const p = grainPerT(it); return p > 0 ? q * (UNIT_KG[it.unit] || 0) / 1000 * p : 0; } const pr = priceOf('item:' + it.id, d, baseCur()), price = pr ? pr.price : (it.price > 0 ? it.price : 0); return q * price; };
+    const endD = new Date(rg[1] + 'T12:00:00'); endD.setDate(endD.getDate() + 1); const e1 = endD.toISOString().slice(0, 10);
+    o[it.kind].a += val(rg[0], st(rg[0])); o[it.kind].e += val(rg[1], st(e1));
+  });
+  const cv = t.cv, tc = ['work', 'mach', 'diesel', 'ps', 'du', 'seed'].filter(evOn).reduce((a, k) => a + t.tot[k], 0), A0 = G.reduce((a, g) => a + o[g[0]].a, 0), E0 = G.reduce((a, g) => a + o[g[0]].e, 0);
+  if (!(A0 > 0 || E0 > 0)) return '';
+  const f0 = v => fmt(cv(v), 0);
+  return '<h3 style="margin-top:14px">Lager im Wirtschaftsjahr ' + esc(fyLabel(t.yr)) + ' (' + dateDE(rg[0]) + ' – ' + dateDE(rg[1]) + ')</h3><div class="tablewrap"><table><thead><tr><th>Lager</th><th class="num">Wert am Anfang</th><th class="num">Wert am Ende</th><th class="num">Veränderung</th></tr></thead><tbody>' +
+    G.filter(g => o[g[0]].a > 0 || o[g[0]].e > 0).map(g => '<tr><td>' + g[1] + '</td><td class="num">' + f0(o[g[0]].a) + '</td><td class="num">' + f0(o[g[0]].e) + '</td><td class="num">' + (o[g[0]].e - o[g[0]].a >= 0 ? '+' : '') + f0(o[g[0]].e - o[g[0]].a) + '</td></tr>').join('') +
+    '<tr class="sum"><td><b>Lager gesamt</b></td><td class="num"><b>' + f0(A0) + '</b></td><td class="num"><b>' + f0(E0) + '</b></td><td class="num"><b>' + (E0 - A0 >= 0 ? '+' : '') + f0(E0 - A0) + '</b></td></tr></tbody></table></div><p class="hint">Kosten auf den Schlägen in diesem Wirtschaftsjahr: <b>' + f0(tc) + ' ' + sym + '</b>. Ein Lageraufbau (Einkäufe, die noch nicht verbraucht sind) erhöht den Lagerwert, ein Lagerabbau senkt ihn. Bewertet mit den Preisen aus Grunddaten (Getreide mit dem Verkaufspreis) in ' + sym + '. Nicht verbrauchte Ware gehört wirtschaftlich erst in das Jahr, in dem sie verbraucht wird.</p>';
+}
 VIEWS.auswertung = function () {
-  const years = {}; years[String(new Date().getFullYear())] = 1; db.jobs.forEach(j => { if (j.startedAt) years[dstr(j.startedAt).slice(0, 4)] = 1; }); db.entries.forEach(e => { years[String(e.date).slice(0, 4)] = 1; });
-  const yr = ui.evYear || String(new Date().getFullYear()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols(t);
+  const years = {}, yOf = d => evBasis() === 'wj' ? fyOf(d) : String(d).slice(0, 4); years[yOf(today())] = 1; db.jobs.forEach(j => { if (j.startedAt) years[yOf(dstr(j.startedAt))] = 1; }); db.entries.forEach(e => { if (e.date) years[yOf(e.date)] = 1; }); db.loads.forEach(l => { if (l.date) years[yOf(l.date)] = 1; });
+  const yr = ui.evYear || yOf(today()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols(t);
   const selC = ui.evCrops || {}, selF = ui.evFlds || {};
   let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Auswertung: Kosten pro ' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</h2><div class="tools noprint"><button class="small" data-act="evCsv">Excel (CSV)</button><button class="small" data-act="evPrint">PDF / Drucken</button></div></div>';
   h += curTools();
-  h += '<div class="filter noprint"><label>Jahr<select data-ui="evYear">' + Object.keys(years).sort().reverse().map(y => '<option' + (y === yr ? ' selected' : '') + '>' + y + '</option>').join('') + '</select></label><label>Gruppieren nach<select data-ui="evBy"><option value="schlag"' + (t.by === 'schlag' ? ' selected' : '') + '>Schlag</option><option value="frucht"' + (t.by === 'frucht' ? ' selected' : '') + '>Frucht</option></select></label></div>';
+  h += '<div class="filter noprint"><label>Zeitraum<select data-ui="evBasis"><option value="wj"' + (evBasis() === 'wj' ? ' selected' : '') + '>Wirtschaftsjahr (' + (fyStart() === 7 ? '1.7.–30.6.' : '1.1.–31.12.') + ')</option><option value="kultur"' + (evBasis() === 'kultur' ? ' selected' : '') + '>Kultur (Aussaat bis Ernte)</option></select></label><label>' + (evBasis() === 'wj' ? 'Wirtschaftsjahr' : 'Erntejahr') + '<select data-ui="evYear">' + Object.keys(years).sort().reverse().map(y => '<option value="' + y + '"' + (y === yr ? ' selected' : '') + '>' + esc(evYL(y)) + '</option>').join('') + '</select></label><label>Gruppieren nach<select data-ui="evBy"><option value="schlag"' + (t.by === 'schlag' ? ' selected' : '') + '>Schlag</option><option value="frucht"' + (t.by === 'frucht' ? ' selected' : '') + '>Frucht</option></select></label></div>';
   const crops = {}; db.fields.forEach(f => { crops[cropKey(f) || '(ohne Frucht)'] = 1; });
   h += '<details class="fold noprint" data-uidetails="evsel"' + ((ui.det && ui.det.evsel) ? ' open' : '') + '><summary><h2>Auswahl: Früchte, Schläge, Angaben</h2></summary><div class="foldtools">';
   h += '<p class="hint">Früchte antippen, um nur diese zu zeigen (nichts gewählt = alle). Darunter einzelne Schläge dazuwählen. Bei „Angaben“ stellst du die Spalten zusammen.</p>';
   h += '<div class="cropchips"><button type="button" data-act="evClear">Alle Früchte und Schläge</button>' + Object.keys(crops).sort((a, b) => a.localeCompare(b, 'de')).map(k => '<button type="button" class="' + (selC[k] ? 'on' : '') + '" data-act="evCrop" data-k="' + esc(k) + '">' + esc(k) + '</button>').join('') + '</div>';
   h += '<div class="multilist" style="max-height:200px;overflow:auto;margin:8px 0">' + sortedFields(true).map(f => '<label class="chk"><input type="checkbox" data-evf="' + f.id + '"' + (selF[f.id] ? ' checked' : '') + '> ' + esc(dn(f)) + ' <span class="sub">' + (f.crop ? esc(f.crop) + ' · ' : '') + fmt(f.ha, 1) + ' ha</span></label>').join('') + '</div>';
   h += '<div class="tools" style="flex-wrap:wrap">' + EV_ALL.map(c => '<label class="chk"><input type="checkbox" data-evc="' + c[0] + '"' + (evOn(c[0]) ? ' checked' : '') + '> ' + c[1] + '</label>').join(' ') + '</div></div></details>';
-  h += '<details class="fold noprint" data-uidetails="proto"' + ((ui.det && ui.det.proto) ? ' open' : '') + '><summary><h2>Protokoll für Kontrollen (Pflanzenschutz &amp; Düngung)</h2></summary><div class="foldtools"><p class="hint">Alle Behandlungen und Düngungen des Jahres ' + esc(yr) + ' je Schlag mit Datum, Mittel, Grund, Menge je ha und gesamt – zum Ausdrucken oder als PDF sichern (Auswahl der Früchte/Schläge oben gilt auch hier).</p><button class="primary" data-act="protoPrint">Protokoll erstellen</button></div></details>';
+  h += '<details class="fold noprint" data-uidetails="proto"' + ((ui.det && ui.det.proto) ? ' open' : '') + '><summary><h2>Protokoll für Kontrollen (Pflanzenschutz &amp; Düngung)</h2></summary><div class="foldtools"><p class="hint">Alle Behandlungen und Düngungen des Zeitraums ' + esc(evYL(yr)) + ' je Schlag mit Datum, Mittel, Grund, Menge je ha und gesamt – zum Ausdrucken oder als PDF sichern (Auswahl der Früchte/Schläge oben gilt auch hier).</p><button class="primary" data-act="protoPrint">Protokoll erstellen</button></div></details>';
   h += chartsHtml(t, selC, selF, Object.keys(years));
+  if (evBasis() === 'wj') h += '<p class="hint">Zeitraum: ' + dateDE(fyRange(yr)[0]) + ' – ' + dateDE(fyRange(yr)[1]) + ' (Wirtschaftsjahr ' + esc(fyLabel(yr)) + ')</p>'; else h += '<p class="hint">Zeitraum: je Schlag von der Aussaat bis zur letzten Ernte-Ladung im Erntejahr ' + esc(yr) + ' (ohne Aussaatdatum: ab 1.1.).</p>';
   h += '<p class="hint">So wird gerechnet: <b>Arbeit</b> = Stunden der erledigten Aufträge × Stundenlohn. <b>Maschinen</b> = Einsatzstunden × Stundensatz (AfA + Reparaturen + Versicherung des Jahres geteilt durch die Einsatzstunden). <b>Diesel</b> aus den Tankungen. <b>Pflanzenschutz, Dünger</b> = Menge × Preis am Tag der Behandlung. <b>Saatgut</b> = Saatmenge × Fläche × Preis (Grunddaten, Gruppe Saatgut). <b>Summe</b> zählt nur die angehakten Kostenspalten. Beträge in ' + sym + '.</p>';
   if (!t.list.length) return h + '<p class="empty">Für diese Auswahl gibt es keine Daten. Es zählen erledigte Aufträge mit Schlag sowie Behandlungen und Düngungen im gewählten Jahr.</p></section></div>';
   const fm = (r, c) => { const v = evVal(r, c[0], cv); return v == null ? '–' : fmt(v, c[2] === 'n1' ? 1 : 0); };
@@ -5755,6 +5790,7 @@ VIEWS.auswertung = function () {
   t.list.forEach(r => { h += '<tr><td><b>' + esc(r.name) + '</b>' + (r.crop ? '<div class="sub">' + esc(r.crop) + '</div>' : (t.by === 'frucht' ? '<div class="sub">' + r.n + ' Schläge</div>' : '')) + '</td>' + cols.map(c => '<td class="num">' + (c[0] === 'sum' || c[0] === 'res' ? '<b>' + fm(r, c) + '</b>' : fm(r, c)) + '</td>').join('') + '</tr>'; });
   h += '<tr class="sum"><td><b>Gesamt</b></td>' + cols.map(c => '<td class="num"><b>' + fm(t.tot, c) + '</b></td>').join('') + '</tr></tbody></table></div>';
   if (t.miss.wage || t.miss.price || t.miss.date || t.miss.rate || t.miss.grain) h += '<p class="hint">Hinweis: ' + (t.miss.grain ? t.miss.grain + ' Ladungen ohne Verkaufspreis (Grunddaten → Getreide / Verkauf) zählen mit 0 Erlös. ' : '') + (t.miss.wage ? t.miss.wage + ' Arbeitseinsätze ohne Stundenlohn (Team) zählen mit 0. ' : '') + (t.miss.price ? t.miss.price + ' Positionen ohne Preis (Lager/Grunddaten) zählen mit 0. ' : '') + (t.miss.date ? t.miss.date + ' Schläge mit Saatmenge, aber ohne Aussaatdatum, sind beim Saatgut nicht enthalten. ' : '') + (t.miss.rate ? t.miss.rate + ' Schläge mit Sorte und Aussaatdatum, aber ohne Saatmenge, zählen beim Saatgut mit 0.' : '') + '</p>';
+  h += lagerWjHtml(t, sym);
   return h + '</section></div>';
 };
 
@@ -5779,7 +5815,7 @@ VIEWS.daten = function () {
 /* ---------- Rechte ---------- */
 VIEWS.einst = function () {
   const w = canW('crop') || canW('draw');
-  let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p></section>';
+  let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p><h3 style="margin-top:12px">Wirtschaftsjahr</h3><div class="tools">' + [[1, 'Beginnt am 1.1.'], [7, 'Beginnt am 1.7.']].map(m => '<button class="' + (fyStart() === m[0] ? 'primary' : '') + '" data-act="fyStart" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Gilt für die Auswertung (Kosten pro Schlag, Lagerwert, Protokoll). Bei 1.7. heißt das Jahr z. B. „2026/27“ (1.7.2026 bis 30.6.2027). Die Auswertung „Kultur (Aussaat bis Ernte)“ rechnet davon unabhängig.</p></section>';
   h += '<section class="card"><div class="cardhead"><h2>Grundeinstellungen (Vorauswahl)</h2></div><p class="hint">Diese Werte stehen in den Auswahlfeldern immer zuerst. Du kannst sie im einzelnen Formular jederzeit ändern.</p>' +
     [['duUnit', 'Einheit für neue Dünger', ['kg', 't', 'dt']], ['psUnit', 'Einheit für neue Pflanzenschutzmittel', ['l', 'kg', 'g', 't', 'dt']]].map(r => '<label class="prefrow">' + r[1] + '<select data-pref="' + r[0] + '"' + (w ? '' : ' disabled') + '>' + r[2].map(u => '<option value="' + u + '"' + (prefUnit(r[0] === 'duUnit' ? 'du' : 'ps') === u ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></label>').join('') + '</section>' +
     '<section class="card"><div class="cardhead"><h2>Einheit für neues Saatgut je Frucht</h2></div>' + SEED_CROPS.map(c => '<label class="prefrow">' + esc(c) + '<select data-prefseed="' + esc(c) + '"' + (w ? '' : ' disabled') + '>' + SEED_UNITS.map(u => '<option value="' + u.v + '"' + (prefUnit('sa', c) === u.v ? ' selected' : '') + '>' + u.l + '</option>').join('') + '</select></label>').join('') + '</section>';
@@ -6328,11 +6364,11 @@ A.rotEdit = d => {
   const n = $('df_note'); if (n) n.textContent = (g.extra && g.extra.length ? 'Weitere Kulturen auf Teilflächen: ' + g.extra.map(e => e[0] + ' ' + fmt(e[1], 1) + ' ha').join(', ') + '. ' : '') + (g.hist ? 'Quelle: LPIS. Eine Änderung hier überschreibt nur die Anzeige in der App.' : '');
 };
 A.protoPrint = () => {
-  const yr = ui.evYear || String(new Date().getFullYear()), selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
+  const yr = ui.evYear || (evBasis() === 'wj' ? fyOf(today()) : String(new Date().getFullYear())), selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
   const fl = sortedFields(true).filter(f => !any || selC[cropKey(f)] || selF[f.id]);
-  let body = '<h1>Protokoll Pflanzenschutz &amp; Düngung ' + esc(yr) + '</h1><div class="sub">Erstellt am ' + dateDE(today()) + '</div>', n = 0;
+  let body = '<h1>Protokoll Pflanzenschutz &amp; Düngung ' + esc(evYL(yr)) + '</h1><div class="sub">Erstellt am ' + dateDE(today()) + '</div>', n = 0;
   fl.forEach(f => {
-    const es = db.entries.filter(e => e.fieldId === f.id && (e.type === 'Pflanzenschutz' || e.type === 'Düngung') && String(e.date).slice(0, 4) === yr).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const es = db.entries.filter(e => e.fieldId === f.id && (e.type === 'Pflanzenschutz' || e.type === 'Düngung') && evInYr(e.date, yr)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
     if (!es.length) return; n++;
     body += '<h2 style="font-size:14px;margin:14px 0 2px">' + esc(dn(f)) + ' · ' + fmt(f.ha, 2) + ' ha' + (f.crop ? ' · ' + esc(f.crop) : '') + (f.variety ? ' · ' + esc(f.variety) : '') + (f.sowDate ? ' · Aussaat ' + dateDE(f.sowDate) : '') + '</h2>';
     body += '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>' + ['Datum', 'Art', 'Mittel / Dünger', 'Grund', 'Menge je ha', 'Menge gesamt', 'ha', 'Bearbeiter'].map(x => '<th style="border:1px solid #000;padding:2px 4px;text-align:left">' + x + '</th>').join('') + '</tr></thead><tbody>' +
@@ -6347,7 +6383,7 @@ A.evCsv = () => {
   const t = evalTable(), cv = t.cv, cols = evCols(t), rows = [[t.by === 'frucht' ? 'Frucht' : 'Schlag', 'Frucht'].concat(cols.map(c => c[1])).concat(['Währung'])];
   const line = r => [r.name, r.crop || ''].concat(cols.map(c => { const v = evVal(r, c[0], cv); return v == null ? '' : dnum(v); })).concat([curSym(dispCur())]);
   t.list.forEach(r => rows.push(line(r))); rows.push(line(Object.assign({ name: 'Gesamt', crop: '' }, t.tot)));
-  csvDownload('auswertung-' + t.yr + '.csv', rows);
+  csvDownload('auswertung-' + String(evYL(t.yr)).replace('/', '-') + '.csv', rows);
 };
 A.evCrop = d => { ui.evCrops = ui.evCrops || {}; if (ui.evCrops[d.k]) delete ui.evCrops[d.k]; else ui.evCrops[d.k] = true; render(); };
 A.evClear = () => { ui.evCrops = {}; ui.evFlds = {}; render(); };
@@ -7374,6 +7410,7 @@ A.varFilter = d => { ui.varFilter = d.v === '__all' ? null : d.v; renderKartei()
 A.sortCrop = () => { ui.sortCrop = !ui.sortCrop; renderKartei(); };
 A.labelPart = d => { db.labelParts = Object.assign({ nr: true, name: true, ha: true }, db.labelParts || {}); db.labelParts[d.p] = !labelOn(d.p); save(); render(); };
 A.toggleNames = () => { db.showNames = db.showNames === false; save(); render(); try { placeNameBtn(); } catch (e) { /* egal */ } };
+A.fyStart = d => { if (!canW('crop') && !canW('draw')) return; db.fyStart = +d.m === 7 ? 7 : 1; ui.evYear = undefined; save(); render(); };
 A.nameMode = d => { db.nameMode = d.m; save(); render(); };
 A.zoneSel = d => selectZone(d.id, true);
 A.zoneEdit = d => {

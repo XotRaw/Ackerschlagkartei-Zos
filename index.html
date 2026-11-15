@@ -321,7 +321,7 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
   <label>Angemeldet als (Testansicht)<select id="meSel"></select></label>
   <div class="langwrap">
   <button type="button" id="reloadBtn" class="langsel" title="Seite neu laden / Obnovit stránku / Reload" aria-label="Aktualisieren" style="cursor:pointer;font-size:18px;padding:4px 10px">🔄</button>
-  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.38</span>
+  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.39</span>
   <label class="langsel" title="Währung / Měna / Currency"><span>💱</span><select id="curSel" aria-label="Währung"><option value="EUR">€ EUR</option><option value="CZK">Kč CZK</option></select></label>
   <label class="langsel" title="Sprache / Jazyk / Language"><span>🌐</span><select id="langSel" aria-label="Sprache"><option value="de">Deutsch</option><option value="cs">Čeština</option><option value="en">English</option></select></label>
   </div>
@@ -5613,9 +5613,9 @@ VIEWS.team = function () {
   const month = ui.zMonth || today().slice(0, 7);
   const rows = db.users.map(u => {
     const ms = db.shifts.filter(s => s.userId === u.id && dstr(s.start).slice(0, 7) === month).reduce((a, s) => a + shiftMs(s), 0);
-    return '<tr' + (u.active === false ? ' style="opacity:.55"' : '') + '><td><b>' + esc(u.name) + '</b>' + (u.note ? '<div class="sub">' + esc(u.note) + '</div>' : '') + '</td><td>' + esc(roleL(u.role)) + '</td><td>' + esc(u.phone || '') + '</td><td class="num">' + moneyT(u.wage || 0) + '</td><td class="num">' + hm(ms) + '</td><td class="num">' + moneyT(hrs(ms) * (u.wage || 0)) + '</td><td>' + (u.active === false ? '<span class="tag Manuell">inaktiv</span>' : '') + '</td><td>' + ((u.role !== 'admin' || me().role === 'admin') ? '<button class="small" data-act="userEdit" data-id="' + u.id + '">Bearbeiten</button>' : '') + '</td></tr>';
+    return '<tr' + (u.active === false ? ' style="opacity:.55"' : '') + '><td><b>' + esc(u.name) + '</b>' + (u.note ? '<div class="sub">' + esc(u.note) + '</div>' : '') + '</td><td>' + esc(roleL(u.role)) + '</td><td>' + esc(u.phone || '') + '</td><td class="num">' + moneyT(u.wage || 0) + '</td><td class="num">' + hm(ms) + '</td><td class="num">' + moneyT(hrs(ms) * (u.wage || 0)) + '</td><td>' + (u.active === false ? '<span class="tag Manuell">inaktiv</span>' : '') + '</td><td>' + ((u.role !== 'admin' || me().role === 'admin') ? '<button class="small" data-act="userEdit" data-id="' + u.id + '">Bearbeiten</button> <button class="small" data-act="userPay" data-id="' + u.id + '">Netto</button>' : '') + '</td></tr>';
   }).join('');
-  return '<div class="page"><section class="card"><div class="cardhead"><h2>Mitarbeiter</h2><button class="primary small" data-act="userNew">Mitarbeiter hinzufügen</button></div>' + curTools() + '<div class="filter"><label>Monat für Stunden und Lohn<input type="month" data-ui="zMonth" value="' + month + '"></label></div><div class="tablewrap"><table><thead><tr><th>Name</th><th>Rolle</th><th>Telefon</th><th class="num">Stundenlohn</th><th class="num">Stunden</th><th class="num">Lohnkosten</th><th></th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="hint">Lohn und Stunden sehen nur Admin und Betriebsleiter. Die Stunden stammen aus dem Arbeitstag (Start bis Feierabend).</p></section></div>';
+  return '<div class="page"><section class="card"><div class="cardhead"><h2>Mitarbeiter</h2><span><button class="small" data-act="czRates">Lohnsätze (CZ)</button> <button class="primary small" data-act="userNew">Mitarbeiter hinzufügen</button></span></div>' + curTools() + '<div class="filter"><label>Monat für Stunden und Lohn<input type="month" data-ui="zMonth" value="' + month + '"></label></div><div class="tablewrap"><table><thead><tr><th>Name</th><th>Rolle</th><th>Telefon</th><th class="num">Stundenlohn</th><th class="num">Stunden</th><th class="num">Lohnkosten</th><th></th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="hint">Lohn und Stunden sehen nur Admin und Betriebsleiter. Die Stunden stammen aus dem Arbeitstag (Start bis Feierabend).</p></section></div>';
 };
 
 
@@ -7429,21 +7429,77 @@ A.cutUndo = (d, b) => {
 A.zoneDel = (d, b) => { if (!canW('draw')) return; if (!arm(b, 'Löschen?')) return; db.zones = db.zones.filter(z => z.id !== d.id); save(); render(); };
 
 function userFields(u) {
-  const isAdmin = me().role === 'admin';
+  const isAdmin = me().role === 'admin', h = u.hr || {};
   return [
     { k: 'name', label: 'Name', req: true, v: u.name },
     { k: 'role', label: 'Rolle', type: 'select', opts: ROLES.filter(r => isAdmin || r.k !== 'admin').map(r => ({ v: r.k, l: r.l })), v: u.role },
     { k: 'phone', label: 'Telefon', v: u.phone || '' },
     { k: 'since', label: 'Eintritt', type: 'date', v: u.since || '' },
     { k: 'wage', label: 'Stundenlohn in ' + dcs(), type: 'number', step: 'any', min: 0, v: u.wage ? toD(u.wage) : '' },
+    { k: 'contract', label: 'Vertragsart (Tschechien)', type: 'select', opts: [{ v: 'HPP', l: 'Arbeitsvertrag (HPP)' }, { v: 'DPP', l: 'Dohoda o provedení práce (DPP)' }, { v: 'DPC', l: 'Dohoda o pracovní činnosti (DPČ)' }], v: h.contract || 'HPP' },
+    { k: 'monthly', label: 'Fester Monatslohn brutto in ' + dcs() + ' (leer = Stundenlohn × Stunden)', type: 'number', step: 'any', min: 0, v: h.monthly ? toD(h.monthly) : '' },
+    { k: 'birth', label: 'Geburtsdatum', type: 'date', v: h.birth || '' },
+    { k: 'marital', label: 'Familienstand', type: 'select', opts: [{ v: '', l: '–' }, { v: 'ledig', l: 'ledig' }, { v: 'verheiratet', l: 'verheiratet' }, { v: 'geschieden', l: 'geschieden' }, { v: 'verwitwet', l: 'verwitwet' }], v: h.marital || '' },
+    { k: 'kids', label: 'Kinder (unterhaltsberechtigt, im Haushalt)', type: 'number', step: '1', min: 0, v: h.kids || 0 },
+    { k: 'kidsZtp', label: 'davon Kinder mit Ausweis ZTP/P', type: 'number', step: '1', min: 0, v: h.kidsZtp || 0 },
+    { k: 'decl', label: 'Steuererklärung „Prohlášení poplatníka“ bei uns unterschrieben (nur eine Firma darf die Steuerermäßigungen geben)', type: 'checkbox', v: !!h.decl },
+    { k: 'spouse', label: 'Ehepartner ohne Einkommen, betreut ein Kind unter 3 Jahren (Ehegattenermäßigung)', type: 'checkbox', v: !!h.spouse },
+    { k: 'disab', label: 'Invalidität', type: 'select', opts: [{ v: '', l: 'keine' }, { v: '12', l: 'Invalidenrente Stufe 1 oder 2' }, { v: '3', l: 'Invalidenrente Stufe 3' }], v: h.disab || '' },
+    { k: 'ztp', label: 'Inhaber des Ausweises ZTP/P', type: 'checkbox', v: !!h.ztp },
+    { k: 'pens', label: 'Altersrentner (kein Rentenbeitrag 6,5 %)', type: 'checkbox', v: !!h.pens },
     { k: 'note', label: 'Infos (z. B. Sachkunde Pflanzenschutz, Führerscheine)', type: 'textarea', v: u.note || '' },
     { k: 'active', label: 'Aktiv (kann sich anmelden)', type: 'checkbox', v: u.active !== false }
   ];
 }
+/* ---------- Lohn Tschechien: Netto-Schätzung (Stand 2026) ---------- */
+const CZ_DEF = { pen: 6.5, sick: 0.6, hlt: 4.5, erSv: 24.8, erHl: 9, taxLow: 15, taxHigh: 23, hiLimit: 146901, cPay: 2570, cSpouse: 2070, cInv12: 210, cInv3: 420, cZtp: 1345, kid1: 1267, kid2: 1860, kid3: 2320, bonMin: 100, bonMax: 5025, dppLimit: 11999, dpcLimit: 4499, minWage: 22400 };
+const CZ_LAB = { pen: 'Rentenversicherung Arbeitnehmer %', sick: 'Krankengeld-Versicherung Arbeitnehmer %', hlt: 'Krankenversicherung Arbeitnehmer %', erSv: 'Sozialversicherung Arbeitgeber %', erHl: 'Krankenversicherung Arbeitgeber %', taxLow: 'Lohnsteuer Grundsatz %', taxHigh: 'Lohnsteuer erhöhter Satz %', hiLimit: 'Monatsgrenze für den erhöhten Satz (3 × Durchschnittslohn) Kč', cPay: 'Steuerermäßigung Steuerzahler pro Monat Kč', cSpouse: 'Ermäßigung Ehepartner pro Monat Kč', cInv12: 'Ermäßigung Invalidität Stufe 1/2 pro Monat Kč', cInv3: 'Ermäßigung Invalidität Stufe 3 pro Monat Kč', cZtp: 'Ermäßigung ZTP/P pro Monat Kč', kid1: 'Kinderermäßigung 1. Kind pro Monat Kč', kid2: 'Kinderermäßigung 2. Kind pro Monat Kč', kid3: 'Kinderermäßigung 3. und jedes weitere Kind pro Monat Kč', bonMin: 'Steuerbonus Mindestbetrag pro Monat Kč', bonMax: 'Steuerbonus Höchstbetrag pro Monat Kč', dppLimit: 'DPP: Sozialabgaben erst über Kč pro Monat', dpcLimit: 'DPČ: Sozialabgaben erst über Kč pro Monat', minWage: 'Mindestlohn pro Monat Kč' };
+function czR() { return Object.assign({}, CZ_DEF, db.czRates || {}); }
+function hrFrom(v) { return { contract: v.contract || 'HPP', monthly: v.monthly === '' ? 0 : (fromD(num(v.monthly)) || 0), birth: v.birth || '', marital: v.marital || '', kids: Math.max(0, Math.floor(num(v.kids) || 0)), kidsZtp: Math.max(0, Math.floor(num(v.kidsZtp) || 0)), decl: !!v.decl, spouse: !!v.spouse, disab: v.disab || '', ztp: !!v.ztp, pens: !!v.pens }; }
+function czPay(h, g) {
+  h = h || {}; const R = czR(), ct = h.contract || 'HPP', lim = ct === 'DPP' ? R.dppLimit : ct === 'DPC' ? R.dpcLimit : 0, ins = ct === 'HPP' || g > lim, c = Math.ceil, o = { g, lines: [] };
+  o.sv = ins ? c(g * ((h.pens ? 0 : R.pen) + R.sick) / 100) : 0; o.hl = ins ? c(g * R.hlt / 100) : 0;
+  o.erSv = ins ? c(g * R.erSv / 100) : 0; o.erHl = ins ? c(g * R.erHl / 100) : 0; o.ins = ins;
+  const base = g > 100 ? c(g / 100) * 100 : c(g), tx = base <= R.hiLimit ? base * R.taxLow / 100 : R.hiLimit * R.taxLow / 100 + (base - R.hiLimit) * R.taxHigh / 100; o.base = base; o.tax0 = c(tx);
+  let cr = 0, kidCr = 0;
+  if (h.decl && g > 0) {
+    cr += R.cPay; if (h.spouse) cr += R.cSpouse * (h.ztp ? 1 : 1); if (h.disab === '12') cr += R.cInv12; if (h.disab === '3') cr += R.cInv3; if (h.ztp) cr += R.cZtp;
+    for (let i = 1; i <= (h.kids || 0); i++) { const a = i === 1 ? R.kid1 : i === 2 ? R.kid2 : R.kid3; kidCr += i <= (h.kidsZtp || 0) ? a * 2 : a; }
+  }
+  o.cr = cr; o.kidCr = kidCr;
+  let rest = Math.max(0, o.tax0 - cr), tax = Math.max(0, rest - kidCr), bonus = 0;
+  if (kidCr > rest) { const b = Math.min(kidCr - rest, R.bonMax); if (b >= R.bonMin && g >= R.minWage / 2) bonus = b; }
+  o.tax = tax; o.bonus = bonus; o.net = g - o.sv - o.hl - tax + bonus; o.erTotal = g + o.erSv + o.erHl;
+  return o;
+}
+A.userPay = d => {
+  const u = db.users.find(x => x.id === d.id); if (!u || !canW('staff')) return;
+  const month = ui.zMonth || today().slice(0, 7), h = u.hr || {};
+  const ms = db.shifts.filter(s => s.userId === u.id && dstr(s.start).slice(0, 7) === month).reduce((a, s) => a + shiftMs(s), 0);
+  const grossBase = h.monthly > 0 ? h.monthly : hrs(ms) * (u.wage || 0), g = Math.round(conv(grossBase, baseCur(), 'CZK')), p = czPay(h, g);
+  const K = n => fmt(n, 0) + ' Kč', D = n => fmt(conv(n, 'CZK', dispCur()), 2) + ' ' + curSym(dispCur());
+  const L = [
+    [(h.monthly > 0 ? 'Fester Monatslohn' : 'Stunden ' + month + ': ' + hm(ms) + ' × ' + moneyT(u.wage || 0)) + ' → Brutto', K(g)],
+    ['Sozialversicherung Arbeitnehmer' + (p.ins ? '' : ' (unter der Grenze, keine)'), '− ' + K(p.sv)], ['Krankenversicherung Arbeitnehmer', '− ' + K(p.hl)],
+    ['Lohnsteuer vor Ermäßigungen (Basis ' + K(p.base) + ')', K(p.tax0)], ['Ermäßigungen (Steuerzahler, Ehepartner, Invalidität, ZTP/P)', '− ' + K(p.cr)], ['Kinderermäßigung', '− ' + K(p.kidCr)],
+    ['Lohnsteuer zu zahlen', '− ' + K(p.tax)], ['Steuerbonus (Auszahlung)', '+ ' + K(p.bonus)],
+    ['NETTO (Auszahlung, geschätzt)', K(p.net) + ' = ' + D(p.net)], ['Dazu Arbeitgeber: Sozial ' + K(p.erSv) + ' + Krankenkasse ' + K(p.erHl), 'Gesamtkosten ' + K(p.erTotal) + ' = ' + D(p.erTotal)]
+  ];
+  dialog('Lohn netto: ' + u.name, L.map((x, i) => ({ k: 'l' + i, type: 'note' })).concat([{ k: 'ln', type: 'note' }]), () => { }, { saveLabel: 'Schließen' });
+  L.forEach((x, i) => { const e = $('df_l' + i); if (e) { e.textContent = x[0] + ':  ' + x[1]; if (i === 8) e.style.fontWeight = '700'; } });
+  const e = $('df_ln'); if (e) e.textContent = 'Schätzung nach tschechischem Recht (Sätze Stand 2026, anpassbar unter Team → Lohnsätze). ' + (h.decl ? '' : 'Ohne unterschriebene Steuererklärung gibt es keine Ermäßigungen. ') + 'Nicht enthalten: Pfändungen, Zuschläge, Sachbezüge, Höchstgrenze der Sozialversicherung, Mindest-Versicherungsbasis.';
+};
+A.czRates = () => {
+  if (!canW('staff')) return;
+  const R = czR();
+  dialog('Lohnsätze Tschechien (Stand 2026)', Object.keys(CZ_DEF).map(k => ({ k, label: CZ_LAB[k], type: 'number', step: 'any', min: 0, v: R[k] })), v => {
+    db.czRates = {}; Object.keys(CZ_DEF).forEach(k => { const x = num(v[k]); if (x >= 0 && x !== CZ_DEF[k]) db.czRates[k] = x; }); toast('Sätze gespeichert.');
+  });
+};
 A.userNew = () => {
   if (!canW('staff')) return;
   dialog('Mitarbeiter hinzufügen', userFields({ name: '', role: 'l1', active: true }), v => {
-    db.users.push({ id: newId(), name: v.name.trim(), role: v.role, phone: v.phone.trim(), since: v.since, wage: fromD(num(v.wage)) || 0, note: v.note.trim(), active: v.active });
+    db.users.push({ id: newId(), name: v.name.trim(), role: v.role, phone: v.phone.trim(), since: v.since, wage: fromD(num(v.wage)) || 0, note: v.note.trim(), active: v.active, hr: hrFrom(v) });
     toast('Mitarbeiter angelegt.');
   });
 };
@@ -7453,7 +7509,7 @@ A.userEdit = d => {
   dialog(u.name, userFields(u), v => {
     const admins = db.users.filter(x => x.role === 'admin' && x.active !== false);
     if (u.role === 'admin' && admins.length === 1 && admins[0].id === u.id && (v.role !== 'admin' || !v.active)) return 'Es muss mindestens ein aktiver Admin bleiben.';
-    Object.assign(u, { name: v.name.trim(), role: v.role, phone: v.phone.trim(), since: v.since, wage: fromD(num(v.wage)) || 0, note: v.note.trim(), active: v.active });
+    Object.assign(u, { name: v.name.trim(), role: v.role, phone: v.phone.trim(), since: v.since, wage: fromD(num(v.wage)) || 0, note: v.note.trim(), active: v.active, hr: hrFrom(v) });
     const s = activeShift(u.id); if (s && !u.active) { tick(true); s.end = Date.now(); }
     toast('Gespeichert.');
   });

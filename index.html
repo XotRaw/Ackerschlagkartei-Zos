@@ -318,10 +318,11 @@ tr.sumrow td{background:rgba(127,127,127,.12);border-top:2px solid rgba(127,127,
 <body>
 <header class="bar">
   <div class="brand">Ackerschlagkartei</div>
+  <label class="langsel" title="Betrieb"><span>🏢</span><select id="betrSel" aria-label="Betrieb"></select></label>
   <label>Angemeldet als (Testansicht)<select id="meSel"></select></label>
   <div class="langwrap">
   <button type="button" id="reloadBtn" class="langsel" title="Seite neu laden / Obnovit stránku / Reload" aria-label="Aktualisieren" style="cursor:pointer;font-size:18px;padding:4px 10px">🔄</button>
-  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.42</span>
+  <span id="verTag" title="Version" style="font-size:12px;opacity:.7;margin-left:4px;white-space:nowrap">V7.45</span>
   <label class="langsel" title="Währung / Měna / Currency"><span>💱</span><select id="curSel" aria-label="Währung"><option value="EUR">€ EUR</option><option value="CZK">Kč CZK</option></select></label>
   <label class="langsel" title="Sprache / Jazyk / Language"><span>🌐</span><select id="langSel" aria-label="Sprache"><option value="de">Deutsch</option><option value="cs">Čeština</option><option value="en">English</option></select></label>
   </div>
@@ -3113,7 +3114,12 @@ window.__tr = tr;
 /* =====================================================================
    Grundlagen
    ===================================================================== */
-const KEY = 'ackerschlagkartei.v1';
+const BREG_KEY = 'ackerschlagkartei.betriebe';
+function bregLoad() { try { const r = JSON.parse(localStorage.getItem(BREG_KEY)); if (r && r.list && r.list.length) return r; } catch (e) { /* leer */ } return { active: 'b0', list: [{ id: 'b0', name: 'Zos Rychnov s.r.o.', country: 'CZ', key: 'ackerschlagkartei.v1' }] }; }
+let BREG = bregLoad();
+function bregSave() { try { localStorage.setItem(BREG_KEY, JSON.stringify(BREG)); } catch (e) { /* egal */ } }
+function bActive() { return BREG.list.find(b => b.id === BREG.active) || BREG.list[0]; }
+const KEY = bActive().key;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n, d) => Number(n).toLocaleString(window.__loc || 'de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -3243,7 +3249,7 @@ function migrate(src) {
 }
 function load() {
   try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && typeof d === 'object') return migrate(d); } catch (e) { /* leer */ }
-  return migrate(null);
+  const n = migrate(null); if (KEY !== 'ackerschlagkartei.v1') { n.currency = bActive().country === 'DE' ? '€' : 'Kč'; n.gdCur = bActive().country === 'DE' ? 'EUR' : 'CZK'; } return n;
 }
 let db = load();
 function save() {
@@ -4513,7 +4519,7 @@ VIEWS.fruchtfolge = function () {
   return h;
 };
 document.addEventListener('input', e => { if (e.target.id === 'ffQ') { ui.ffQ = e.target.value; const p = e.target.selectionStart; render(); const n = $('ffQ'); if (n) { n.focus(); try { n.setSelectionRange(p, p); } catch (x) { /* egal */ } } } });
-document.addEventListener('change', e => { if (e.target.id === 'ffAll') { ui.ffAll = e.target.checked; render(); } });
+document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.uib) { ui[e.target.dataset.uib] = e.target.checked; render(); return; } if (e.target.id === 'ffAll') { ui.ffAll = e.target.checked; render(); } });
 function remindList() {
   const out = [], td = today(), soon = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   db.machines.forEach(m => {
@@ -4953,6 +4959,10 @@ function workBlock(getYear) {
   const start = () => { ensureReg(); refreshVarList(''); const t = setInterval(() => { if (!$('dlg').open) { clearInterval(t); return; } if (REG) { clearInterval(t); refresh(dlgVals()); } }, 400); };
   return { fields: fl, change, refresh, validate, data, start, isSaat };
 }
+function regDeView() {
+  return '<section class="card"><div class="cardhead"><h2>Zulassung (DE)</h2><button class="small" data-act="lagerTab" data-tab="ps">← Zurück zu Pflanzenschutz</button></div>' +
+    '<p class="empty">Die deutsche Zulassungsliste (BVL) ist noch nicht in der App.</p><p class="hint">Sobald die Datei des Bundesamts für Verbraucherschutz und Lebensmittelsicherheit (BVL, Pflanzenschutzmittel-Verzeichnis) vorliegt, wird sie hier genauso angezeigt wie die tschechische Liste: Mittel, Wirkstoff, erlaubte Kulturen, Höchstmengen und Auflagen. Betrieb: <b>' + esc(bActive().name) + '</b> (' + esc(bActive().country) + ').</p></section>';
+}
 function regView() {
   let h = '<section class="card"><div class="cardhead"><h2>Zulassung (CZ)</h2><button class="small" data-act="lagerTab" data-tab="ps">← Zurück zu Pflanzenschutz</button></div>';
   if (regState === 'err') return h + '<p class="empty">Die Zulassungsliste konnte nicht geladen werden.</p><p><button class="small primary" data-act="regRetry">Erneut laden</button></p></section>';
@@ -5145,7 +5155,7 @@ function impEinkauf25Run() {
     todo.push(r);
   });
   if (!todo.length) { toast('Nichts zu importieren: ' + nSkip + ' Einkäufe sind schon im Lager.'); return; }
-  if (!confirm(todo.length + ' Einkäufe (17.7.2025 bis 23.6.2026) ins Lager buchen (' + nSkip + ' schon vorhanden, übersprungen).' + (Object.keys(newIt).length ? '\nNeue Artikel (' + Object.keys(newIt).length + '): ' + Object.keys(newIt).sort().join(', ') : '') + '\nPreise in Kč, Mengen in l oder kg.\n\nOK = übernehmen')) return;
+  if (!confirm('Betrieb: ' + bActive().name + '\n' + todo.length + ' Einkäufe (17.7.2025 bis 23.6.2026) ins Lager buchen (' + nSkip + ' schon vorhanden, übersprungen).' + (Object.keys(newIt).length ? '\nNeue Artikel (' + Object.keys(newIt).length + '): ' + Object.keys(newIt).sort().join(', ') : '') + '\nPreise in Kč, Mengen in l oder kg.\n\nOK = übernehmen')) return;
   let nIt = 0, nMv = 0;
   todo.forEach(r => {
     const k = r[7] + nk(r[1]); let it = items[k];
@@ -5180,7 +5190,7 @@ function impEinkauf24Run() {
     todo.push(r);
   });
   if (!todo.length) { toast('Nichts zu importieren: ' + nSkip + ' Einkäufe sind schon im Lager.'); return; }
-  if (!confirm(todo.length + ' Einkäufe (23.7.2024 bis 5.6.2025) ins Lager buchen (' + nSkip + ' schon vorhanden, übersprungen).' + (Object.keys(newIt).length ? '\nNeue Artikel (' + Object.keys(newIt).length + '): ' + Object.keys(newIt).sort().join(', ') : '') + '\nPreise in Kč, Mengen in l oder kg.\n\nOK = übernehmen')) return;
+  if (!confirm('Betrieb: ' + bActive().name + '\n' + todo.length + ' Einkäufe (23.7.2024 bis 5.6.2025) ins Lager buchen (' + nSkip + ' schon vorhanden, übersprungen).' + (Object.keys(newIt).length ? '\nNeue Artikel (' + Object.keys(newIt).length + '): ' + Object.keys(newIt).sort().join(', ') : '') + '\nPreise in Kč, Mengen in l oder kg.\n\nOK = übernehmen')) return;
   const book = confirm('Auch die Mengen im Lager buchen?\nSinnvoll, wenn du vorher die LPIS-Anwendungen (Verbrauch) übernommen hast. Sonst steht der Bestand zu hoch.\nOK = Mengen buchen · Abbrechen = nur Preise');
   let nIt = 0, nMv = 0;
   todo.forEach(r => {
@@ -5216,7 +5226,7 @@ function impLpisRun() {
   });
   if (!nNew) { toast('Nichts zu importieren: ' + nSkip + ' Einträge sind schon vorhanden' + (Object.keys(noField).length ? ', ' + Object.keys(noField).length + ' Schläge nicht gefunden' : '') + '.'); return; }
   const msg = nNew + ' Anwendungen übernehmen (' + nSkip + ' schon vorhanden, übersprungen).' + (Object.keys(noField).length ? '\nSchläge nicht gefunden (' + Object.keys(noField).length + '): ' + Object.keys(noField).sort().join(', ') : '') + (Object.keys(newIt).length ? '\nNeue Mittel im Lager (' + Object.keys(newIt).length + '): ' + Object.keys(newIt).sort().join(', ') : '') + '\n\nOK = übernehmen';
-  if (!confirm(msg)) return;
+  if (!confirm('Betrieb: ' + bActive().name + '\n' + msg)) return;
   const stock = confirm('Auch den Verbrauch im Lager abbuchen?\nOK = ja, abbuchen · Abbrechen = nur in die Schlagkartei');
   const gids = {}; let nIt = 0, nMv = 0;
   todo.forEach(p => {
@@ -5377,10 +5387,20 @@ function lagerTabs() {
   if (t.length) t.push(['hallen', 'Hallen']);
   return t;
 }
+function lagerYears() {
+  const ys = {}; db.moves.forEach(m => { if (m.date) ys[fyOf(m.date)] = 1; }); ys[fyOf(today())] = 1;
+  const k = Object.keys(ys).map(Number), lo = Math.min.apply(null, k), hi = Math.max.apply(null, k), o = []; for (let y = hi; y >= lo; y--) o.push(String(y)); return o;
+}
+function lagerYearBar() {
+  const ly = ui.lagerYr || '';
+  return '<label>Zeitraum<select data-ui="lagerYr"><option value="">Alles (aktueller Bestand)</option>' + lagerYears().map(y => '<option value="' + y + '"' + (ly === y ? ' selected' : '') + '>Wirtschaftsjahr ' + esc(fyLabel(y)) + '</option>').join('') + '</select></label>' +
+    (ly ? '<label class="chk"><input type="checkbox" data-uib="lagerAll"' + (ui.lagerAll ? ' checked' : '') + '> auch Artikel ohne Bewegung zeigen</label>' : '');
+}
 function movesTable(ids) {
-  const mv = db.moves.filter(m => ids.indexOf(m.itemId) >= 0).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts)).slice(0, 15);
+  const rg = ui.lagerYr ? fyRange(ui.lagerYr) : null;
+  const mv = db.moves.filter(m => ids.indexOf(m.itemId) >= 0 && (!rg || (m.date >= rg[0] && m.date <= rg[1]))).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts)).slice(0, rg ? 300 : 15);
   if (!mv.length) return '';
-  return '<details class="fold" data-uidetails="lagermoves"' + ((ui.det && ui.det.lagermoves) ? ' open' : '') + ' style="margin-top:14px"><summary><h2>Letzte Buchungen</h2></summary><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Artikel</th><th class="num">Menge</th><th>Halle</th><th>Schlag</th><th>Von</th><th>Notiz</th><th></th></tr></thead><tbody>' + mv.map(m => {
+  return '<details class="fold" data-uidetails="lagermoves"' + ((ui.det && ui.det.lagermoves) ? ' open' : '') + ' style="margin-top:14px"><summary><h2>' + (rg ? 'Buchungen im Wirtschaftsjahr ' + esc(fyLabel(ui.lagerYr)) : 'Letzte Buchungen') + '</h2></summary><div class="tablewrap"><table><thead><tr><th>Datum</th><th>Artikel</th><th class="num">Menge</th><th>Halle</th><th>Schlag</th><th>Von</th><th>Notiz</th><th></th></tr></thead><tbody>' + mv.map(m => {
     const it = db.items.find(i => i.id === m.itemId) || { name: '?', unit: '' };
     return '<tr><td>' + dateDE(m.date) + '</td><td>' + esc(it.name) + '</td><td class="num">' + (m.delta > 0 ? '+' : '') + fmt(m.delta, 2) + ' ' + esc(it.unit) + '</td><td>' + (m.hallId ? esc(hallName(m.hallId)) : '') + '</td><td>' + (m.fieldId ? esc(fName(m.fieldId)) : '') + '</td><td>' + esc(uName(m.userId)) + '</td><td>' + esc(m.note || '') + '</td><td>' + (canW('edit') ? '<button class="small danger" data-act="moveDel" data-id="' + m.id + '" aria-label="Buchung löschen">✕</button>' : '') + '</td></tr>';
   }).join('') + '</tbody></table></div></details>';
@@ -5392,20 +5412,23 @@ function catalogView(K) {
   const known = {}; CROPS.forEach(c => { known[c] = 1; }); items.forEach(i => String(i.crops || '').split(/[,;]/).map(s => s.trim()).filter(Boolean).forEach(c => { known[c] = 1; }));
   if (ui.lagerCat) items = items.filter(i => (i.cat || 'Sonstiges') === ui.lagerCat);
   if (ui.lagerCrop) items = items.filter(i => cropMatch(i, ui.lagerCrop));
+  const lrg = ui.lagerYr ? fyRange(ui.lagerYr) : null, lz = {}, la = {};
+  if (lrg) { db.moves.forEach(m => { if (m.date >= lrg[0] && m.date <= lrg[1]) { const o = lz[m.itemId] = lz[m.itemId] || { z: 0, a: 0, n: 0 }; o.n++; if (m.delta > 0) o.z += m.delta; else o.a -= m.delta; } if (m.date <= lrg[1]) la[m.itemId] = (la[m.itemId] || 0) + m.delta; }); if (!ui.lagerAll) items = items.filter(i => lz[i.id]); }
   const ci = i => { const x = cats.indexOf(i.cat || 'Sonstiges'); return x < 0 ? 99 : x; };
   items.sort((a, b) => ci(a) - ci(b) || a.name.localeCompare(b.name, 'de'));
-  let h = '<section class="card"><div class="cardhead"><h2>' + K.l + '</h2>' + (edit && K.k === 'du' ? '<button class="small" data-act="duPreset">Düngerarten aus Liste</button> ' : '') + (edit && K.k === 'ps' && !(db.imp && db.imp.einkauf26) ? '<button class="small" data-act="impEinkauf">Einkaufsliste 2026 übernehmen</button> ' : '') + (edit ? '<button class="small primary" data-act="itemNew" data-kind="' + K.k + '">Artikel anlegen</button> ' : '') + (K.k === 'ps' ? '<button class="small" data-act="lagerTab" data-tab="reg">Zulassung (CZ)</button>' : '') + '</div>';
-  h += (prices ? '<p class="hint" style="margin:0 0 6px">Währung: oben rechts umschaltbar · Kurs 1 € = ' + fmt(db.fx.rate, 2) + ' Kč</p>' : '') + '<div class="filter"><label>Gruppe<select data-ui="lagerCat"><option value="">Alle</option>' + cats.map(c => '<option' + (ui.lagerCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label><label>Zugelassen / geeignet für<select data-ui="lagerCrop"><option value="">Alle Kulturen</option>' + Object.keys(known).map(c => '<option' + (ui.lagerCrop === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
+  let h = '<section class="card"><div class="cardhead"><h2>' + K.l + '</h2>' + (edit && K.k === 'du' ? '<button class="small" data-act="duPreset">Düngerarten aus Liste</button> ' : '') + (edit && K.k === 'ps' && !(db.imp && db.imp.einkauf26) ? '<button class="small" data-act="impEinkauf">Einkaufsliste 2026 übernehmen</button> ' : '') + (edit ? '<button class="small primary" data-act="itemNew" data-kind="' + K.k + '">Artikel anlegen</button> ' : '') + (K.k === 'ps' ? (bActive().country === 'DE' ? '<button class="small" data-act="lagerTab" data-tab="regde">Zulassung (DE)</button> <button class="small" data-act="lagerTab" data-tab="reg">Zulassung (CZ)</button>' : '<button class="small" data-act="lagerTab" data-tab="reg">Zulassung (CZ)</button> <button class="small" data-act="lagerTab" data-tab="regde">Zulassung (DE)</button>') : '') + '</div>';
+  h += (prices ? '<p class="hint" style="margin:0 0 6px">Währung: oben rechts umschaltbar · Kurs 1 € = ' + fmt(db.fx.rate, 2) + ' Kč</p>' : '') + '<div class="filter"><label>Gruppe<select data-ui="lagerCat"><option value="">Alle</option>' + cats.map(c => '<option' + (ui.lagerCat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label><label>Zugelassen / geeignet für<select data-ui="lagerCrop"><option value="">Alle Kulturen</option>' + Object.keys(known).map(c => '<option' + (ui.lagerCrop === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label>' + lagerYearBar() + '</div>';
   if (!items.length) h += '<p class="empty">Keine Artikel in dieser Ansicht.' + (edit ? '' : ' Das Büro oder der Betriebsleiter legt sie an.') + '</p>';
   else {
-    let last = null, sum = 0, cols = 4 + (prices ? 1 : 0) + (seeStock ? 1 : 0) + (prices && seeStock ? 1 : 0);
-    h += '<div class="tablewrap"><table><thead><tr><th>Artikel</th><th>' + (K.k === 'sa' ? 'Frucht' : 'Kulturen') + '</th><th class="num">' + (K.k === 'sa' ? 'Saatmenge/ha' : 'Aufwand/ha') + '</th><th>Lager</th>' + (prices ? '<th class="num">Preis</th>' : '') + (seeStock ? '<th class="num">Bestand</th>' : '') + (prices && seeStock ? '<th class="num">Wert</th>' : '') + '<th></th></tr></thead><tbody>';
+    let last = null, sum = 0, cols = 4 + (prices ? 1 : 0) + (seeStock ? 1 : 0) + (prices && seeStock ? 1 : 0) + (lrg && seeStock ? 2 : 0);
+    h += '<div class="tablewrap"><table><thead><tr><th>Artikel</th><th>' + (K.k === 'sa' ? 'Frucht' : 'Kulturen') + '</th><th class="num">' + (K.k === 'sa' ? 'Saatmenge/ha' : 'Aufwand/ha') + '</th><th>Lager</th>' + (prices ? '<th class="num">Preis</th>' : '') + (seeStock && lrg ? '<th class="num">Zugang</th><th class="num">Verbrauch</th>' : '') + (seeStock ? '<th class="num">' + (lrg ? 'Bestand Ende' : 'Bestand') + '</th>' : '') + (prices && seeStock ? '<th class="num">Wert</th>' : '') + '<th></th></tr></thead><tbody>';
     items.forEach(i => {
-      const c = i.cat || 'Sonstiges', st = stockOf(i.id), val = Math.max(0, st) * (i.price || 0);
+      const c = i.cat || 'Sonstiges', st = lrg ? (la[i.id] || 0) : stockOf(i.id), val = Math.max(0, st) * (i.price || 0), lo = lz[i.id] || { z: 0, a: 0 };
       if (c !== last) { h += '<tr class="group"><td colspan="' + (cols + 1) + '">' + esc(c) + '</td></tr>'; last = c; }
       sum += val;
       h += '<tr><td><b class="lnk" data-act="itemInfo" data-id="' + i.id + '" title="Infotafel">' + esc(i.name) + (K.k === 'ps' ? ' ⓘ' : '') + '</b>' + (i.wait ? '<div class="sub">Wartezeit ' + i.wait + ' Tage</div>' : '') + (i.nut && nutTxt(i.nut) ? '<div class="sub">' + esc(nutTxt(i.nut)) + '</div>' : '') + (K.k === 'sa' ? '<div class="sub">' + (i.own ? 'Eigenes Saatgut' : 'Zukauf') + (i.beiz && i.beiz.length ? ' · Beizung: ' + i.beiz.map(b => { const m = db.items.find(x => x.id === b.id); return m ? esc(m.name) + ' ' + fmt(b.dose, 2) + ' ' + esc(m.unit) + '/dt' : ''; }).filter(Boolean).join(', ') : '') + (i.unitInfo ? ' · 1 ' + esc(i.unit) + ' = ' + esc(i.unitInfo) : '') + '</div>' : '') + (i.note ? '<div class="sub">' + esc(i.note) + '</div>' : '') + '</td><td>' + esc(i.crops || '–') + '</td><td class="num">' + (K.k === 'sa' ? '–' : K.k === 'du' ? '–' : i.dose ? fmt(i.dose, 2) + ' ' + esc(i.unit) : '–') + '</td><td>' + (i.hallId ? esc(hallName(i.hallId)) : '–') + '</td>' +
         (prices ? '<td class="num">' + (i.price ? lm(i.price) + '/' + esc(i.unit) : '–') + '</td>' : '') +
+        (seeStock && lrg ? '<td class="num">' + (lo.z ? '+' + fmt(lo.z, 2) : '–') + '</td><td class="num">' + (lo.a ? '−' + fmt(lo.a, 2) : '–') + '</td>' : '') +
         (seeStock ? '<td class="num' + (st < 0 ? ' neg' : '') + '">' + fmt(st, 2) + ' ' + esc(i.unit) + (K.k === 'ps' && i.min > 0 && st < i.min ? '<div><span class="tag warn">unter Mindestbestand</span></div>' : '') + '</td>' : '') +
         (prices && seeStock ? '<td class="num">' + (i.price ? lm(val) : '–') + '</td>' : '') +
         '<td class="num">' + (canMove ? '<button class="small" data-act="move" data-dir="out" data-id="' + i.id + '">Entnehmen</button> <button class="small primary" data-act="move" data-dir="in" data-id="' + i.id + '">Einlagern</button> ' : '') + (edit ? '<button class="small" data-act="itemEdit" data-id="' + i.id + '" aria-label="Artikel bearbeiten">✎</button>' : '') + '</td></tr>';
@@ -5475,11 +5498,11 @@ function hallsView() {
 }
 VIEWS.lager = function () {
   const tabs = lagerTabs(); if (!tabs.length) return '<div class="page"><p class="empty">Kein Zugriff.</p></div>';
-  if (!tabs.some(t => t[0] === ui.lagerTab) && !(ui.lagerTab === 'reg' && tabs.some(t => t[0] === 'ps'))) ui.lagerTab = tabs[0][0];
+  if (!tabs.some(t => t[0] === ui.lagerTab) && !((ui.lagerTab === 'reg' || ui.lagerTab === 'regde') && tabs.some(t => t[0] === 'ps'))) ui.lagerTab = tabs[0][0];
   if (ui.lagerTab === 'reg' || ui.lagerTab === 'ps') ensureReg();
   if (!ui._fxl) { ui._fxl = 1; fxRefresh(false); }
-  let h = '<div class="page"><div class="chips">' + tabs.map(t => '<button class="' + (t[0] === ui.lagerTab || (t[0] === 'ps' && ui.lagerTab === 'reg') ? 'on' : '') + '" data-act="lagerTab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>';
-  h += ui.lagerTab === 'reg' ? regView() : ui.lagerTab === 'gr' ? grainView() : ui.lagerTab === 'hallen' ? hallsView() : catalogView(KINDS.find(k => k.k === ui.lagerTab));
+  let h = '<div class="page"><div class="chips">' + tabs.map(t => '<button class="' + (t[0] === ui.lagerTab || (t[0] === 'ps' && (ui.lagerTab === 'reg' || ui.lagerTab === 'regde')) ? 'on' : '') + '" data-act="lagerTab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>';
+  h += ui.lagerTab === 'reg' ? regView() : ui.lagerTab === 'regde' ? regDeView() : ui.lagerTab === 'gr' ? grainView() : ui.lagerTab === 'hallen' ? hallsView() : catalogView(KINDS.find(k => k.k === ui.lagerTab));
   return h + '</div>';
 };
 
@@ -5699,6 +5722,31 @@ function machRate(id, yr) {
   const hours = db.jobs.filter(j => j.startedAt && j.endedAt && (j.tractorId === id || j.implId === id) && dstr(j.startedAt).slice(0, 4) === yr).reduce((x, j) => x + hrs(j.endedAt - j.startedAt), 0);
   return (machRateCache[k] = hours > 0 ? total / hours : 0);
 }
+
+/* ---------- Betriebe verwalten ---------- */
+function betriebeHtml() {
+  const adm = me().role === 'admin';
+  return '<section class="card"><div class="cardhead"><h2>Betriebe</h2>' + (adm ? '<button class="small primary" data-act="betrNew">Betrieb hinzufügen</button>' : '') + '</div><p class="hint">Jeder Betrieb hat eigene Schläge, Lager, Team, Maschinen und Preise. Umgeschaltet wird oben links. Das Land bestimmt Währung zu Beginn und welche Zulassungsliste zuerst steht. In der Auswertung kannst du mehrere Betriebe zusammen auswerten.</p><div class="tablewrap"><table><thead><tr><th>Betrieb</th><th>Land</th><th></th></tr></thead><tbody>' +
+    BREG.list.map(b => '<tr><td><b>' + esc(b.name) + '</b>' + (b.id === bActive().id ? ' <span class="tag Manuell">aktiv</span>' : '') + '</td><td>' + esc(b.country === 'DE' ? 'Deutschland' : 'Tschechien') + '</td><td>' + (adm ? '<button class="small" data-act="betrEdit" data-id="' + b.id + '">Bearbeiten</button>' + (b.id !== bActive().id ? ' <button class="small danger" data-act="betrDel" data-id="' + b.id + '">Löschen</button>' : '') : '') + '</td></tr>').join('') +
+    '</tbody></table></div>' + (adm ? '<div class="tools" style="margin-top:8px"><button class="small" data-act="betrBackup">Alle Betriebe sichern (Datei)</button></div>' : '') + '</section>';
+}
+const BETR_F = b => [{ k: 'name', label: 'Name des Betriebs', req: true, v: b.name || '' }, { k: 'country', label: 'Land', type: 'select', opts: [{ v: 'CZ', l: 'Tschechien (CZ)' }, { v: 'DE', l: 'Deutschland (DE)' }], v: b.country || 'CZ' }];
+/* Mehrere Betriebe gemeinsam auswerten */
+function evSel() { const ids = (ui.evB || []).filter(id => BREG.list.some(b => b.id === id)); return ids.length ? ids : [BREG.active]; }
+function evalAll(yr) {
+  const ids = evSel(); if (ids.length === 1 && ids[0] === BREG.active) return evalData(yr);
+  const out = { rows: [], miss: { price: 0, wage: 0, date: 0, rate: 0, grain: 0 } }, saved = db, MONEY = ['work', 'mach', 'diesel', 'ps', 'du', 'seed', 'rev', 'sub', 'rent'], target = baseCur();
+  ids.forEach(id => {
+    const b = BREG.list.find(x => x.id === id); let d2;
+    if (id === BREG.active) d2 = saved; else { try { d2 = migrate(JSON.parse(localStorage.getItem(b.key))); } catch (e) { d2 = null; } if (!d2) return; }
+    const bc = /kč|czk/i.test(d2.currency || '') ? 'CZK' : 'EUR'; let t, nm = [];
+    db = d2; try { t = evalData(yr); t.rows.forEach(r => { nm.push(dn(r.f)); }); } finally { db = saved; }
+    t.rows.forEach((r, i) => { const r2 = Object.assign({}, r, { f: Object.assign({}, r.f, { alias: b.name.replace(/\s+(s\.r\.o\.|GmbH)$/i, '') + ': ' + nm[i] }) }); if (bc !== target) MONEY.forEach(k => { r2[k] = conv(r[k], bc, target); }); out.rows.push(r2); });
+    Object.keys(out.miss).forEach(k => { out.miss[k] += (t.miss[k] || 0); });
+  });
+  out.multi = ids.length > 1; return out;
+}
+function evBetrChips() { if (BREG.list.length < 2) return ''; const sel = evSel(); return '<div class="chips noprint" style="margin:6px 0"><span class="hint" style="align-self:center">Betriebe:</span>' + BREG.list.map(b => '<button class="' + (sel.indexOf(b.id) >= 0 ? 'on' : '') + '" data-act="evBetr" data-id="' + b.id + '">' + esc(b.name) + '</button>').join('') + '</div>'; }
 /* ----- Wirtschaftsjahr (1.1. oder 1.7.) und Kultur (Aussaat bis Ernte) ----- */
 function fyStart() { return db.fyStart === 7 ? 7 : 1; }
 function fyOf(d) { const y = +String(d).slice(0, 4), m = +String(d).slice(5, 7); return String(fyStart() === 7 && m < 7 ? y - 1 : y); }
@@ -5756,7 +5804,7 @@ const evCost = ['work', 'mach', 'diesel', 'ps', 'du', 'seed'];
 const evSumOf = r => evCost.filter(evOn).reduce((a, k) => a + r[k], 0);
 function evalTable() {
   const yr = ui.evYear || (evBasis() === 'wj' ? fyOf(today()) : String(new Date().getFullYear())), by = ui.evBy || 'schlag';
-  const d = evalData(yr), cv = v => conv(v, baseCur(), dispCur());
+  const d = evalAll(yr), cv = v => conv(v, baseCur(), dispCur());
   const selC = ui.evCrops || {}, selF = ui.evFlds || {}, any = Object.keys(selC).length + Object.keys(selF).length > 0;
   let list = d.rows.filter(r => (evSumOf(r) > 0 || r.h > 0 || r.yield > 0 || evCost.some(k => r[k] > 0)) && (!any || selC[cropKey(r.f)] || selF[r.f.id]));
   if (by === 'frucht') {
@@ -5811,7 +5859,7 @@ function chartsHtml(t, selC, selF, yrs) {
   /* Kosten im Jahresvergleich */
   const yl = (yrs || []).filter(y => /^\d{4}$/.test(y)).sort().slice(-6);
   if (yl.length > 1) {
-    const ys = yl.map(y => { const d = evalData(y), tt = {}; evCost.forEach(k => { tt[k] = d.rows.reduce((a, r) => a + r[k], 0); }); return { y, tt, sum: evCost.filter(evOn).reduce((a, k) => a + cv(tt[k]), 0) }; }), mx = Math.max.apply(null, ys.map(x => x.sum).concat([1]));
+    const ys = yl.map(y => { const d = evalAll(y), tt = {}; evCost.forEach(k => { tt[k] = d.rows.reduce((a, r) => a + r[k], 0); }); return { y, tt, sum: evCost.filter(evOn).reduce((a, k) => a + cv(tt[k]), 0) }; }), mx = Math.max.apply(null, ys.map(x => x.sum).concat([1]));
     if (ys.some(x => x.sum > 0)) h += '<div class="chartbox"><h3>Kosten im Jahresvergleich (alle Schläge)</h3>' + ys.map(x => '<div class="hbar"><span class="nm">' + esc(evYL(x.y)) + '</span><div class="bar" style="width:' + (x.sum / mx * 100).toFixed(1) + '%">' + evCost.filter(evOn).map(k => '<span title="' + EV_NAME[k] + '" style="background:' + EV_COL[k] + ';width:' + (x.sum > 0 ? (cv(x.tt[k]) / x.sum * 100).toFixed(2) : 0) + '%"></span>').join('') + '</div><b>' + fmt(x.sum, 0) + ' ' + sym + '</b></div>').join('') + '</div>';
   }
   /* Arbeitsstunden je Mitarbeiter */
@@ -5840,11 +5888,13 @@ function lagerWjHtml(t, sym) {
 }
 VIEWS.auswertung = function () {
   const years = {}, yOf = d => evBasis() === 'wj' ? fyOf(d) : String(d).slice(0, 4); years[yOf(today())] = 1; db.jobs.forEach(j => { if (j.startedAt) years[yOf(dstr(j.startedAt))] = 1; }); db.entries.forEach(e => { if (e.date) years[yOf(e.date)] = 1; }); db.loads.forEach(l => { if (l.date) years[yOf(l.date)] = 1; });
+  db.fields.forEach(f => { if (f.sowDate) years[yOf(f.sowDate)] = 1; }); db.shifts.forEach(x => { if (x.start) years[yOf(dstr(x.start))] = 1; });
+  { const ks = Object.keys(years).map(Number).filter(n => n > 1990), lo = Math.min.apply(null, ks), hi = Math.max.apply(null, ks.concat([+yOf(today()) + (evBasis() === 'wj' ? 0 : 0)])); for (let y = lo; y <= hi; y++) years[String(y)] = 1; }
   const yr = ui.evYear || yOf(today()), t = evalTable(), cv = t.cv, sym = curSym(dispCur()), cols = evCols(t);
   const selC = ui.evCrops || {}, selF = ui.evFlds || {};
   let h = '<div class="page"><section class="card"><div class="cardhead"><h2>Auswertung: Kosten pro ' + (t.by === 'frucht' ? 'Frucht' : 'Schlag') + '</h2><div class="tools noprint"><button class="small" data-act="evCsv">Excel (CSV)</button><button class="small" data-act="evPrint">PDF / Drucken</button></div></div>';
   h += curTools();
-  h += '<div class="filter noprint"><label>Zeitraum<select data-ui="evBasis"><option value="wj"' + (evBasis() === 'wj' ? ' selected' : '') + '>Wirtschaftsjahr (' + (fyStart() === 7 ? '1.7.–30.6.' : '1.1.–31.12.') + ')</option><option value="kultur"' + (evBasis() === 'kultur' ? ' selected' : '') + '>Kultur (Aussaat bis Ernte)</option></select></label><label>' + (evBasis() === 'wj' ? 'Wirtschaftsjahr' : 'Erntejahr') + '<select data-ui="evYear">' + Object.keys(years).sort().reverse().map(y => '<option value="' + y + '"' + (y === yr ? ' selected' : '') + '>' + esc(evYL(y)) + '</option>').join('') + '</select></label><label>Gruppieren nach<select data-ui="evBy"><option value="schlag"' + (t.by === 'schlag' ? ' selected' : '') + '>Schlag</option><option value="frucht"' + (t.by === 'frucht' ? ' selected' : '') + '>Frucht</option></select></label></div>';
+  h += evBetrChips() + '<div class="filter noprint"><label>Zeitraum<select data-ui="evBasis"><option value="wj"' + (evBasis() === 'wj' ? ' selected' : '') + '>Wirtschaftsjahr (' + (fyStart() === 7 ? '1.7.–30.6.' : '1.1.–31.12.') + ')</option><option value="kultur"' + (evBasis() === 'kultur' ? ' selected' : '') + '>Kultur (Aussaat bis Ernte)</option></select></label><label>' + (evBasis() === 'wj' ? 'Wirtschaftsjahr' : 'Erntejahr') + '<select data-ui="evYear">' + Object.keys(years).sort().reverse().map(y => '<option value="' + y + '"' + (y === yr ? ' selected' : '') + '>' + esc(evYL(y)) + '</option>').join('') + '</select></label><label>Gruppieren nach<select data-ui="evBy"><option value="schlag"' + (t.by === 'schlag' ? ' selected' : '') + '>Schlag</option><option value="frucht"' + (t.by === 'frucht' ? ' selected' : '') + '>Frucht</option></select></label></div>';
   const crops = {}; db.fields.forEach(f => { crops[cropKey(f) || '(ohne Frucht)'] = 1; });
   h += '<details class="fold noprint" data-uidetails="evsel"' + ((ui.det && ui.det.evsel) ? ' open' : '') + '><summary><h2>Auswahl: Früchte, Schläge, Angaben</h2></summary><div class="foldtools">';
   h += '<p class="hint">Früchte antippen, um nur diese zu zeigen (nichts gewählt = alle). Darunter einzelne Schläge dazuwählen. Bei „Angaben“ stellst du die Spalten zusammen.</p>';
@@ -5889,6 +5939,7 @@ VIEWS.daten = function () {
 VIEWS.einst = function () {
   const w = canW('crop') || canW('draw');
   let h = '<div class="page"><section class="card"><h2>Anzeige der Schlagnamen</h2><div class="tools">' + NAME_MODES.map(m => '<button class="' + (db.nameMode === m[0] ? 'primary' : '') + '" data-act="nameMode" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Beides: „Anzeigename (Nummer)“. Den Anzeigenamen trägst du beim Schlag ein.</p><h3 style="margin-top:12px">Wirtschaftsjahr</h3><div class="tools">' + [[1, 'Beginnt am 1.1.'], [7, 'Beginnt am 1.7.']].map(m => '<button class="' + (fyStart() === m[0] ? 'primary' : '') + '" data-act="fyStart" data-m="' + m[0] + '">' + m[1] + '</button>').join('') + '</div><p class="hint">Gilt für die Auswertung (Kosten pro Schlag, Lagerwert, Protokoll). Bei 1.7. heißt das Jahr z. B. „2026/27“ (1.7.2026 bis 30.6.2027). Die Auswertung „Kultur (Aussaat bis Ernte)“ rechnet davon unabhängig.</p></section>';
+  h += betriebeHtml();
   h += '<section class="card"><div class="cardhead"><h2>Grundeinstellungen (Vorauswahl)</h2></div><p class="hint">Diese Werte stehen in den Auswahlfeldern immer zuerst. Du kannst sie im einzelnen Formular jederzeit ändern.</p>' +
     [['duUnit', 'Einheit für neue Dünger', ['kg', 't', 'dt']], ['psUnit', 'Einheit für neue Pflanzenschutzmittel', ['l', 'kg', 'g', 't', 'dt']]].map(r => '<label class="prefrow">' + r[1] + '<select data-pref="' + r[0] + '"' + (w ? '' : ' disabled') + '>' + r[2].map(u => '<option value="' + u + '"' + (prefUnit(r[0] === 'duUnit' ? 'du' : 'ps') === u ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></label>').join('') + '</section>' +
     '<section class="card"><div class="cardhead"><h2>Einheit für neues Saatgut je Frucht</h2></div>' + SEED_CROPS.map(c => '<label class="prefrow">' + esc(c) + '<select data-prefseed="' + esc(c) + '"' + (w ? '' : ' disabled') + '>' + SEED_UNITS.map(u => '<option value="' + u.v + '"' + (prefUnit('sa', c) === u.v ? ' selected' : '') + '>' + u.l + '</option>').join('') + '</select></label>').join('') + '</section>';
@@ -7486,6 +7537,11 @@ A.sortCrop = () => { ui.sortCrop = !ui.sortCrop; renderKartei(); };
 A.labelPart = d => { db.labelParts = Object.assign({ nr: true, name: true, ha: true }, db.labelParts || {}); db.labelParts[d.p] = !labelOn(d.p); save(); render(); };
 A.toggleNames = () => { db.showNames = db.showNames === false; save(); render(); try { placeNameBtn(); } catch (e) { /* egal */ } };
 A.fyStart = d => { if (!canW('crop') && !canW('draw')) return; db.fyStart = +d.m === 7 ? 7 : 1; ui.evYear = undefined; save(); render(); };
+A.betrNew = () => { if (me().role !== 'admin') return; dialog('Betrieb hinzufügen', BETR_F({}), v => { const id = 'b' + newId(); BREG.list.push({ id, name: v.name.trim(), country: v.country, key: 'ackerschlagkartei.b.' + id }); bregSave(); toast('Betrieb angelegt. Oben links umschalten.'); render(); const bs = $('betrSel'); if (bs) bs.innerHTML = BREG.list.map(b => '<option value="' + esc(b.id) + '"' + (b.id === bActive().id ? ' selected' : '') + '>' + esc(b.name) + ' (' + esc(b.country) + ')</option>').join(''); }); };
+A.betrEdit = d => { const b = BREG.list.find(x => x.id === d.id); if (!b || me().role !== 'admin') return; dialog(b.name, BETR_F(b), v => { b.name = v.name.trim(); b.country = v.country; bregSave(); toast('Gespeichert.'); const bs = $('betrSel'); if (bs) bs.innerHTML = BREG.list.map(x => '<option value="' + esc(x.id) + '"' + (x.id === bActive().id ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.country) + ')</option>').join(''); render(); }); };
+A.betrDel = (d, bt) => { const b = BREG.list.find(x => x.id === d.id); if (!b || b.id === bActive().id || me().role !== 'admin') return; if (!arm(bt, 'Wirklich löschen? Alle Daten des Betriebs gehen verloren.')) return; try { localStorage.removeItem(b.key); } catch (e) { /* egal */ } BREG.list = BREG.list.filter(x => x.id !== b.id); bregSave(); const bs = $('betrSel'); if (bs) bs.innerHTML = BREG.list.map(x => '<option value="' + esc(x.id) + '"' + (x.id === bActive().id ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.country) + ')</option>').join(''); toast('Betrieb gelöscht.'); render(); };
+A.betrBackup = () => { if (me().role !== 'admin') return; save(); const out = { format: 'betriebe', reg: BREG, data: {} }; BREG.list.forEach(b => { try { out.data[b.key] = JSON.parse(localStorage.getItem(b.key)); } catch (e) { /* leer */ } }); download('schlagkartei-alle-betriebe-' + today() + '.json', JSON.stringify(out), 'application/json'); toast('Sicherung aller ' + BREG.list.length + ' Betriebe gespeichert.'); };
+A.evBetr = d => { const cur = evSel(), i = cur.indexOf(d.id); const n = i >= 0 ? cur.filter(x => x !== d.id) : cur.concat([d.id]); ui.evB = n.length ? n : [BREG.active]; render(); };
 A.nameMode = d => { db.nameMode = d.m; save(); render(); };
 A.zoneSel = d => selectZone(d.id, true);
 A.zoneEdit = d => {
@@ -7666,6 +7722,7 @@ ensureGps();
 lpApply(); try { rotAliasApply(); } catch (e) { /* ohne Alias-Import */ }
 render();
 (function(){ const rb = $('reloadBtn'); if (rb) rb.onclick = () => { try { save(); } catch (e) { } try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => { }); } catch (e) { } const u = location.href.split('#')[0].replace(/[?&]r=\d+/, '').replace(/\?$/, ''); setTimeout(() => { location.href = u + (u.indexOf('?') < 0 ? '?' : '&') + 'r=' + Date.now(); }, 150); }; })();
+(function(){ const bs = $('betrSel'); if (bs) { bs.innerHTML = BREG.list.map(b => '<option value="' + esc(b.id) + '"' + (b.id === bActive().id ? ' selected' : '') + '>' + esc(b.name) + ' (' + esc(b.country) + ')</option>').join(''); bs.onchange = () => { save(); BREG.active = bs.value; bregSave(); location.reload(); }; document.title = 'Ackerschlagkartei · ' + bActive().name; } })();
 (function(){ const cs = $('curSel'); if (cs) { cs.value = dispCur(); cs.onchange = () => { db.gdCur = cs.value === 'CZK' ? 'CZK' : 'EUR'; save(); render(); fxRefresh(false); }; } })();
 (function(){ const ls = $('langSel'); if (ls) { ls.value = window.__lang || 'de'; ls.onchange = () => { save(); window.__setLang(ls.value); }; } })();
 window.__app = { lpHtml, lpApply, evalData, deriveJob, stockOf, save, deTr, cropDE, get REG() { return REG; }, get selCut() { return selCut; }, get selVerts() { return selVerts; }, undoPop, get db() { return db; }, get map() { return map; }, get trackLayer() { return trackLayer; }, recTrack, tick, render, zoneAt, grp, colorOfCrop, get editIds() { return editGroup.getLayers().map(l => l.rid); }, get groupIds() { return group.getLayers().map(l => l.rid); } };

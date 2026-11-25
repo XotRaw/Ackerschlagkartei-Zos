@@ -28,8 +28,11 @@ gar nicht löschen.
 
 1. Den Ordner `mac-aufraeumer` auf den Mac kopieren (z. B. auf GitHub über **Code → Download ZIP**, entpacken).
 2. Doppelklick auf **`Mac-Aufräumer starten.command`**.
-   * Meldet macOS „kann nicht geöffnet werden, da der Entwickler nicht verifiziert ist“, klickst du die Datei
-     **mit der rechten Maustaste → Öffnen → Öffnen** an. Das ist nur beim ersten Mal nötig.
+   * Meldet macOS „Apple konnte nicht überprüfen, ob … frei von Schadsoftware ist“, klickst du auf **Fertig**
+     (nicht auf Papierkorb). Dann gehst du zu **Systemeinstellungen → Datenschutz & Sicherheit**, scrollst nach
+     unten zu „Sicherheit“ und klickst bei „Mac-Aufräumer starten.command“ auf **Dennoch öffnen**. Das ist nur
+     einmal nötig.
+   * Oder du umgehst die Meldung, indem du das Tool im Terminal startest (siehe unten).
    * Fehlt Python, bietet macOS automatisch die Installation der „Command Line Tools“ an. Einmal bestätigen
      und danach erneut starten.
 3. Der Browser öffnet sich mit der Übersicht. Klicke auf **„Scan starten“**.

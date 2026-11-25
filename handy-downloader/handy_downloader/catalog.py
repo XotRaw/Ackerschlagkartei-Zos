@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS seen (
     PRIMARY KEY (device, remote_path, size)
 );
 """
+# Spalten, die nach Version 1.0 dazukamen (für „Vom Handy löschen“)
+MIGRATIONS = [
+    "ALTER TABLE seen ADD COLUMN sha1 TEXT",
+    "ALTER TABLE seen ADD COLUMN deleted_at TEXT",
+]
 
 
 class Catalog:
@@ -40,6 +45,11 @@ class Catalog:
         self.db = sqlite3.connect(str(db_path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        for stmt in MIGRATIONS:
+            try:
+                self.db.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # Spalte gibt es schon
 
     # ---- Import-Hilfen
     def was_seen(self, device: str, remote_path: str, size: int) -> bool:
@@ -47,9 +57,37 @@ class Catalog:
             return self.db.execute("SELECT 1 FROM seen WHERE device=? AND remote_path=? AND size=?",
                                    (device, remote_path, size)).fetchone() is not None
 
-    def mark_seen(self, device: str, remote_path: str, size: int, mtime: float) -> None:
+    def mark_seen(self, device: str, remote_path: str, size: int, mtime: float, sha1: str | None = None) -> None:
         with self._lock, self.db:
-            self.db.execute("INSERT OR IGNORE INTO seen VALUES (?,?,?,?)", (device, remote_path, size, mtime))
+            self.db.execute("INSERT OR REPLACE INTO seen (device, remote_path, size, mtime, sha1, deleted_at) "
+                            "VALUES (?,?,?,?,?,NULL)", (device, remote_path, size, mtime, sha1))
+
+    # ---- Handy aufräumen
+    def phone_files(self, device: str) -> list[dict]:
+        """Dateien, die noch auf dem Gerät liegen UND schon sicher auf dem Mac sind."""
+        with self._lock:
+            rows = self.db.execute(
+                """SELECT s.rowid AS rid, s.remote_path, s.size AS remote_size, s.mtime, s.sha1,
+                          m.id, m.path, m.category, m.taken_at, m.orig_name, m.megapixel
+                   FROM seen s JOIN media m ON m.sha1 = s.sha1
+                   WHERE s.device = ? AND s.deleted_at IS NULL
+                   ORDER BY m.taken_at""", (device,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def phone_rows(self, device: str, rids: list[int]) -> list[dict]:
+        q = ",".join("?" * len(rids))
+        with self._lock:
+            rows = self.db.execute(
+                f"""SELECT s.rowid AS rid, s.remote_path, s.size AS remote_size, s.mtime, s.sha1, m.path
+                    FROM seen s JOIN media m ON m.sha1 = s.sha1
+                    WHERE s.device = ? AND s.deleted_at IS NULL AND s.rowid IN ({q})""",
+                (device, *rids)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_deleted(self, rids: list[int]) -> None:
+        with self._lock, self.db:
+            self.db.executemany("UPDATE seen SET deleted_at = datetime('now','localtime') WHERE rowid = ?",
+                                [(r,) for r in rids])
 
     def has_hash(self, sha1: str) -> bool:
         with self._lock:

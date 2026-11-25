@@ -39,7 +39,15 @@ def notify(title: str, text: str) -> None:
         subprocess.run(["osascript", "-e", f'display notification "{t}" with title "{title}"'], check=False)
 
 
+def _gb(n: int) -> str:
+    return f"{n / 1e9:.2f} GB" if n >= 1e8 else f"{n / 1e6:.0f} MB"
+
+
 def _import_finished(job) -> None:
+    if job.kind == "delete":
+        txt = f"{job.deleted} Dateien gelöscht, {_gb(job.freed)} frei"
+        notify("Handy-Downloader", f"{job.source}: {txt}" + (f", {job.errors} nicht gelöscht" if job.errors else ""))
+        return
     parts = [f"{job.imported} neu"]
     if job.duplicates:
         parts.append(f"{job.duplicates} schon vorhanden")
@@ -118,6 +126,32 @@ def start_import():
         return jsonify(ok=False, error="Gerät nicht mehr verbunden"), 404
     ok = manager.start(src, cfg, on_done=_import_finished)
     return jsonify(ok=ok, error=None if ok else "Es läuft bereits ein Import")
+
+
+@app.get("/api/phone-files")
+def phone_files():
+    """Alles, was auf dem Gerät liegt und schon geprüft auf dem Mac gesichert ist."""
+    sid = request.args.get("source", "")
+    rows = catalog.phone_files(sid)
+    for r in rows:
+        r["video"] = is_video(r["path"])
+        r["backup_ok"] = Path(r["path"]).exists()
+    return jsonify(items=rows)
+
+
+@app.post("/api/phone-delete")
+def phone_delete():
+    data = request.get_json(silent=True) or {}
+    with _dev_lock:
+        src = _devices.get(data.get("source", ""))
+    if not src:
+        return jsonify(ok=False, error="Gerät nicht mehr verbunden"), 404
+    rids = [int(x) for x in data.get("ids", [])]
+    if not rids:
+        return jsonify(ok=False, error="Nichts ausgewählt"), 400
+    rows = catalog.phone_rows(src.id, rids)
+    ok = manager.start_delete(src, rows, on_done=_import_finished)
+    return jsonify(ok=ok, error=None if ok else "Es läuft gerade ein anderer Vorgang")
 
 
 @app.post("/api/cancel")

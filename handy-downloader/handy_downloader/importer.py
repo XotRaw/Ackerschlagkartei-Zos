@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .catalog import Catalog
 from .media import analyze, target_dir
-from .sources import Source
+from .sources import RemoteFile, Source
 
 APP_DIR = Path(os.environ.get("HANDY_DOWNLOADER_HOME", Path.home() / "Library/Application Support/HandyDownloader"))
 CONFIG_FILE = APP_DIR / "config.json"
@@ -62,13 +62,16 @@ def unique_path(p: Path) -> Path:
 @dataclass
 class Job:
     source: str = ""
-    state: str = "idle"           # idle | scanning | importing | done | error
+    kind: str = "import"          # import | delete
+    state: str = "idle"           # idle | scanning | importing | verifying | deleting | done | error
     total: int = 0
     done: int = 0
     imported: int = 0
     skipped: int = 0
     duplicates: int = 0
     errors: int = 0
+    deleted: int = 0
+    freed: int = 0                # Bytes, die auf dem Handy frei geworden sind
     current: str = ""
     message: str = ""
     by_category: dict = field(default_factory=dict)
@@ -101,7 +104,7 @@ def run_import(source: Source, cfg: dict, catalog: Catalog, job: Job) -> Job:
                 if catalog.has_hash(digest):
                     job.duplicates += 1
                     tmp.unlink(missing_ok=True)
-                    catalog.mark_seen(source.id, rf.path, rf.size, rf.mtime)
+                    catalog.mark_seen(source.id, rf.path, rf.size, rf.mtime, digest)
                     continue
                 info = analyze(tmp, fallback_mtime=rf.mtime, original_name=rf.name)
                 if info.category not in cfg.get("include", DEFAULT_CONFIG["include"]):
@@ -119,7 +122,7 @@ def run_import(source: Source, cfg: dict, catalog: Catalog, job: Job) -> Job:
                             year=info.taken_at.year, month=info.taken_at.month, width=info.width,
                             height=info.height, megapixel=info.megapixel, camera=info.camera,
                             size=dest.stat().st_size, date_source=info.date_source)
-                catalog.mark_seen(source.id, rf.path, rf.size, rf.mtime)
+                catalog.mark_seen(source.id, rf.path, rf.size, rf.mtime, digest)
                 job.imported += 1
                 job.by_category[info.category] = job.by_category.get(info.category, 0) + 1
             except Exception as e:  # einzelne Datei kaputt → weitermachen
@@ -134,6 +137,50 @@ def run_import(source: Source, cfg: dict, catalog: Catalog, job: Job) -> Job:
         job.state, job.message = "error", str(e)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+    return job
+
+
+def run_delete(source: Source, rows: list[dict], catalog: Catalog, job: Job) -> Job:
+    """Dateien vom Handy löschen – aber nur, wenn die Kopie auf dem Mac nachweislich identisch ist."""
+    job.__dict__.update(Job(source=source.name, kind="delete", state="verifying",
+                            total=len(rows), started=time.time()).__dict__)
+    try:
+        safe: list[tuple[dict, RemoteFile]] = []
+        for r in rows:  # 1. Sicherung prüfen
+            if job.cancel:
+                job.message = "Abgebrochen – nichts gelöscht"
+                job.state = "done"
+                return job
+            job.current = Path(r["remote_path"]).name
+            local = Path(r["path"])
+            if not r.get("sha1") or not local.exists() or sha1_of(local) != r["sha1"]:
+                job.errors += 1
+                job.message = f"{job.current}: Kopie auf dem Mac fehlt oder ist verändert – bleibt auf dem Handy"
+            else:
+                safe.append((r, RemoteFile(r["remote_path"], job.current, r["remote_size"], r["mtime"])))
+            job.done += 1
+        if job.cancel:
+            job.message, job.state = "Abgebrochen – nichts gelöscht", "done"
+            return job
+        # 2. Löschen
+        job.state, job.done, job.current = "deleting", 0, ""
+        results = source.delete([rf for _, rf in safe])
+        ok_rids = []
+        for r, rf in safe:
+            err = results.get(rf.path, "nicht bearbeitet")
+            if err is None or err == "nicht gefunden":   # gelöscht oder schon vorher weg
+                ok_rids.append(r["rid"])
+                if err is None:
+                    job.deleted += 1
+                    job.freed += rf.size or 0
+            else:
+                job.errors += 1
+                job.message = f"{rf.name}: {err}"
+            job.done += 1
+        catalog.mark_deleted(ok_rids)
+        job.state = "done"
+    except Exception as e:
+        job.state, job.message = "error", str(e)
     return job
 
 
@@ -155,6 +202,19 @@ class ImportManager:
 
         def work():
             run_import(source, cfg, self.catalog, self.job)
+            if on_done:
+                on_done(self.job)
+
+        self._thread = threading.Thread(target=work, daemon=True)
+        self._thread.start()
+        return True
+
+    def start_delete(self, source: Source, rows: list[dict], on_done=None) -> bool:
+        if self.busy:
+            return False
+
+        def work():
+            run_delete(source, rows, self.catalog, self.job)
             if on_done:
                 on_done(self.job)
 

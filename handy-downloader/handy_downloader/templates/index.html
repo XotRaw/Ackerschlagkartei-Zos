@@ -45,6 +45,19 @@ select,input[type=text],input[type=search],input[type=number]{font:inherit;paddi
 #lb img,#lb video{max-width:100%;max-height:80vh;border-radius:6px}
 #lb .info{color:#ddd;margin-top:12px;text-align:center;font-size:14px}
 #lb .acts{margin-top:10px;display:flex;gap:8px}
+button.danger{background:#d70015;color:#fff;border-color:#d70015}
+#cl{position:fixed;inset:0;background:var(--bg);z-index:15;display:none;flex-direction:column}
+#cl.on{display:flex}
+#cl .top{padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#cl .top h2{margin:0 12px 0 0;font-size:17px;flex-basis:100%}
+#cl .body{flex:1;overflow:auto;padding:16px 20px 120px}
+#cl .foot{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:12px 20px;display:flex;gap:12px;align-items:center;z-index:16}
+#cl .foot .sum{flex:1;font-weight:600}
+.tile.sel{outline:4px solid #d70015;outline-offset:-4px}
+.tile .chk{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:grid;place-items:center;color:#fff;font-size:14px;font-weight:700}
+.tile.sel .chk{background:#d70015;border-color:#d70015}
+.tile.sel img{opacity:.75}
+.note{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:14px}
 .empty{padding:40px;text-align:center;color:var(--muted)}
 .hint{font-size:13px;color:var(--muted);margin-top:8px}
 </style>
@@ -107,6 +120,36 @@ select,input[type=text],input[type=search],input[type=number]{font:inherit;paddi
   <div style="text-align:center;margin-top:16px"><button id="more" style="display:none" onclick="load(true)">Mehr laden</button></div>
 </main>
 
+<div id="cl">
+  <div class="top">
+    <h2>🧹 Platz schaffen auf <span id="clname"></span></h2>
+    <button class="chip on" data-ct="">Alles</button>
+    <button class="chip" data-ct="video">🎬 Videos</button>
+    <button class="chip" data-ct="kamera">📷 Fotos</button>
+    <button class="chip" data-ct="screenshot">🖥 Screenshots</button>
+    <button class="chip" data-ct="extern">🌐 Extern</button>
+    <select id="cl_age">
+      <option value="0">jedes Alter</option><option value="1">älter als 1 Monat</option>
+      <option value="3">älter als 3 Monate</option><option value="6">älter als 6 Monate</option>
+      <option value="12">älter als 1 Jahr</option>
+    </select>
+    <select id="cl_sort"><option value="date">älteste zuerst</option><option value="size">größte zuerst</option></select>
+    <button onclick="clSelect(true)">Alle angezeigten auswählen</button>
+    <button onclick="clSelect(false)">Auswahl aufheben</button>
+  </div>
+  <div class="body">
+    <div class="note">Hier siehst du nur Dateien, die <b>schon auf dem Mac gesichert</b> sind. Vor dem Löschen prüft das
+      Programm jede Kopie noch einmal Byte für Byte. Fehlt eine Kopie oder ist sie verändert, bleibt die Datei auf dem Handy.
+      <span id="clhint"></span></div>
+    <div class="grid" id="clgrid"></div>
+  </div>
+  <div class="foot">
+    <span class="sum" id="clsum">Nichts ausgewählt</span>
+    <button onclick="closeCleanup()">Schließen</button>
+    <button class="danger" id="cldel" disabled onclick="doDelete()">Vom Handy löschen</button>
+  </div>
+</div>
+
 <div id="lb" onclick="if(event.target===this)closeLb()">
   <div id="lbmedia"></div>
   <div class="info" id="lbinfo"></div>
@@ -122,6 +165,7 @@ const LABELS = {kamera:"Kamera-Fotos", extern:"Extern & Downloads", screenshot:"
 const ICON = {kamera:"📷", extern:"🌐", screenshot:"🖥", video:"🎬"};
 const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const KIND = {iphone:"", android:"🤖", volume:"💾", folder:"📁"};
+let devs = [];
 let filt = {type:"", year:"", month:"", min_mp:"", camera:"", q:""}, offset = 0, items = [], cfg = {}, lastDone = -1, cur = null;
 
 const $ = id => document.getElementById(id);
@@ -141,10 +185,12 @@ async function refresh() {
   cfg = s.config;
   // Geräte
   const d = $("devices");
-  d.innerHTML = s.devices.length ? s.devices.map(x => `
+  devs = s.devices;
+  d.innerHTML = s.devices.length ? s.devices.map((x, i) => `
     <div class="dev"><span class="ico">${KIND[x.kind]||"📱"}</span>
       <span class="nm">${esc(x.name)}<small>${{iphone:"iPhone / iPad über USB",android:"Android über USB (adb)",volume:"Laufwerk mit DCIM"}[x.kind]||""}</small></span>
-      <button class="primary" ${s.busy?"disabled":""} onclick="startImport('${esc(x.id)}')">Importieren</button></div>`).join("")
+      <button class="primary" ${s.busy?"disabled":""} onclick="startImport(devs[${i}].id)">Importieren</button>
+      <button ${s.busy?"disabled":""} onclick="openCleanup(devs[${i}])">Platz schaffen …</button></div>`).join("")
     : `<p class="muted">Kein Handy erkannt. Handy per Kabel anstecken und entsperren – beim iPhone „Diesem Computer vertrauen“ bestätigen.</p>`;
   // Job
   const j = s.job;
@@ -152,12 +198,17 @@ async function refresh() {
     $("jobbox").style.display = "";
     $("jobtitle").textContent = j.source;
     const st = {scanning:"liest Dateiliste …", importing:`${j.done} von ${j.total} – ${j.current||""}`,
-                done:`fertig: ${j.imported} neu, ${j.duplicates} schon vorhanden${j.errors?`, ${j.errors} Fehler`:""}`,
+                verifying:`prüft Sicherung auf dem Mac: ${j.done} von ${j.total}`,
+                deleting:`löscht ${j.total - j.errors} Dateien vom Gerät … (Handy entsperrt lassen)`,
+                done: j.kind==="delete"
+                  ? `fertig: ${j.deleted} vom Gerät gelöscht, ${fmtSize(j.freed)} frei${j.errors?`, ${j.errors} nicht gelöscht`:""}`
+                  : `fertig: ${j.imported} neu, ${j.duplicates} schon vorhanden${j.errors?`, ${j.errors} Fehler`:""}`,
                 error:"Fehler: "+j.message}[j.state];
     $("jobtext").textContent = st + (j.state==="done" && j.message ? ` (${j.message})` : "");
     $("jobbar").style.width = (j.total ? 100*j.done/j.total : (j.state==="done"?100:5)) + "%";
     $("jobcats").textContent = Object.entries(j.by_category).map(([k,v]) => `${ICON[k]} ${LABELS[k]}: ${v}`).join("   ");
     $("cancelbtn").style.display = s.busy ? "" : "none";
+    if (j.kind==="delete" && j.state==="done" && cleanup.open && cleanup.lastJob!==j.started) { cleanup.lastJob=j.started; loadCleanup(); }
     if (j.imported !== lastDone) { lastDone = j.imported; if (!s.busy || j.imported % 25 === 0) load(); }
   }
   const t = s.tools, miss = [];
@@ -239,6 +290,72 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowRight" && i < items.length-1) openLb(i+1);
   if (e.key === "ArrowLeft" && i > 0) openLb(i-1);
 });
+
+// ------------------------------------------------------------ Platz schaffen
+const cleanup = {open:false, source:"", name:"", items:[], sel:new Set(), type:"", lastJob:null};
+function fmtSize(b){ return b >= 1e9 ? (b/1e9).toFixed(2).replace(".",",")+" GB" : b >= 1e6 ? Math.round(b/1e6)+" MB" : Math.max(1, Math.round(b/1e3))+" KB"; }
+document.querySelectorAll("#cl .chip").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#cl .chip").forEach(x => x.classList.toggle("on", x===b)); cleanup.type = b.dataset.ct; renderCleanup();
+});
+$("cl_age").onchange = renderCleanup; $("cl_sort").onchange = renderCleanup;
+
+function openCleanup(dev) {
+  const {id, name, kind} = dev;
+  Object.assign(cleanup, {open:true, source:id, name, sel:new Set(), items:[]});
+  $("clname").textContent = name;
+  $("clhint").innerHTML = kind==="iphone"
+    ? "<br><b>iPhone:</b> Gelöscht wird über Apples offiziellen Weg (wie „Digitale Bilder“). Ist „iCloud-Fotos“ an, lässt das iPhone kein Löschen vom Mac zu – und Löschen würde die Fotos auch aus iCloud entfernen."
+    : kind==="android" ? "<br><b>Android:</b> Die Dateien werden direkt gelöscht, nicht in den Papierkorb der Galerie." : "";
+  $("cl").classList.add("on"); loadCleanup();
+}
+function closeCleanup(){ cleanup.open = false; $("cl").classList.remove("on"); }
+async function loadCleanup() {
+  const r = await fetch("/api/phone-files?source="+encodeURIComponent(cleanup.source)).then(r=>r.json());
+  cleanup.items = r.items;
+  const ids = new Set(r.items.map(x=>x.rid)); cleanup.sel = new Set([...cleanup.sel].filter(x=>ids.has(x)));
+  renderCleanup();
+}
+function visibleCleanup() {
+  const age = +$("cl_age").value, cut = new Date(); cut.setMonth(cut.getMonth()-age);
+  let v = cleanup.items.filter(m => (!cleanup.type || m.category===cleanup.type) && (!age || new Date(m.taken_at) < cut));
+  if ($("cl_sort").value==="size") v = [...v].sort((a,b)=>b.remote_size-a.remote_size);
+  return v;
+}
+function renderCleanup() {
+  const v = visibleCleanup();
+  $("clgrid").innerHTML = v.map(m => `
+    <div class="tile ${cleanup.sel.has(m.rid)?"sel":""}" data-rid="${m.rid}" onclick="clToggle(${m.rid}, this)">
+      <img loading="lazy" src="/thumb/${m.id}" onerror="this.outerHTML='<div class=ph>${ICON[m.category]}</div>'">
+      ${m.video ? '<div class="play">▶</div>' : ""}
+      <span class="badge" style="background:var(--${m.category})">${ICON[m.category]} ${LABELS[m.category]}</span>
+      <span class="chk">✓</span>
+      <div class="meta">${m.taken_at.slice(8,10)}.${m.taken_at.slice(5,7)}.${m.taken_at.slice(2,4)} · ${fmtSize(m.remote_size)}${m.backup_ok?"":" · ⚠️ Kopie fehlt"}</div>
+    </div>`).join("") || `<div class="empty">Keine passenden Dateien. Erst importieren – danach erscheinen hier alle Dateien, die sicher auf dem Mac liegen.</div>`;
+  updateSum();
+}
+function clToggle(rid, el) {
+  cleanup.sel.has(rid) ? cleanup.sel.delete(rid) : cleanup.sel.add(rid);
+  el.classList.toggle("sel", cleanup.sel.has(rid)); updateSum();
+}
+function clSelect(on) { visibleCleanup().forEach(m => on ? cleanup.sel.add(m.rid) : cleanup.sel.delete(m.rid)); renderCleanup(); }
+function selStats() {
+  const s = cleanup.items.filter(m => cleanup.sel.has(m.rid));
+  return {n:s.length, bytes:s.reduce((a,m)=>a+(m.remote_size||0),0), videos:s.filter(m=>m.video).length};
+}
+function updateSum() {
+  const {n, bytes, videos} = selStats();
+  $("clsum").textContent = n ? `${n} ausgewählt (${n-videos} ${n-videos===1?"Bild":"Bilder"}, ${videos} ${videos===1?"Video":"Videos"}) · ${fmtSize(bytes)} werden frei` : "Nichts ausgewählt";
+  $("cldel").disabled = !n;
+  $("cldel").textContent = n ? `${n} vom Handy löschen` : "Vom Handy löschen";
+}
+async function doDelete() {
+  const {n, bytes} = selStats();
+  if (!confirm(`${n} Dateien (${fmtSize(bytes)}) endgültig vom Gerät „${cleanup.name}“ löschen?\n\n`
+             + `Die Kopien auf dem Mac bleiben erhalten. Auf dem Handy lässt sich das nicht rückgängig machen.`)) return;
+  const r = await post("/api/phone-delete", {source:cleanup.source, ids:[...cleanup.sel]});
+  if (!r.ok) return alert(r.error);
+  cleanup.sel.clear(); updateSum(); closeCleanup(); refresh();
+}
 
 refresh(); load(); setInterval(refresh, 2000);
 </script>

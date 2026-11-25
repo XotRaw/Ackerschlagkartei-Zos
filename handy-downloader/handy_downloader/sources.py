@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
+import sys
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -39,6 +41,10 @@ class Source:
     def fetch(self, rf: RemoteFile, dest: Path) -> None:
         raise NotImplementedError
 
+    def delete(self, files: list[RemoteFile]) -> dict[str, str | None]:
+        """Dateien auf der Quelle löschen. Ergebnis: Pfad → None (ok) oder Fehlertext."""
+        return {rf.path: "Löschen wird bei dieser Quelle nicht unterstützt" for rf in files}
+
     def as_dict(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": self.kind}
 
@@ -66,6 +72,18 @@ class FolderSource(Source):
 
     def fetch(self, rf: RemoteFile, dest: Path) -> None:
         shutil.copy2(rf.path, dest)
+
+    def delete(self, files: list[RemoteFile]) -> dict[str, str | None]:
+        out: dict[str, str | None] = {}
+        for rf in files:
+            try:
+                os.remove(rf.path)
+                out[rf.path] = None
+            except FileNotFoundError:
+                out[rf.path] = "nicht gefunden"
+            except OSError as e:
+                out[rf.path] = str(e)
+        return out
 
 
 def detect_volumes() -> list[Source]:
@@ -121,6 +139,23 @@ class AndroidSource(Source):
                              capture_output=True, text=True, timeout=1800)
         if res.returncode != 0 or not dest.exists():
             raise IOError(res.stderr.strip() or "adb pull fehlgeschlagen")
+
+    def delete(self, files: list[RemoteFile]) -> dict[str, str | None]:
+        out: dict[str, str | None] = {}
+        for rf in files:
+            esc = rf.path.replace("'", "'\\''")
+            q, uri = f"'{esc}'", f"'file://{esc}'"
+            # löschen + Galerie benachrichtigen, dann prüfen, ob die Datei wirklich weg ist
+            cmd = (f"if [ ! -e {q} ]; then echo MISSING; else rm -f {q}; "
+                   f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d {uri} >/dev/null 2>&1; "
+                   f"if [ -e {q} ]; then echo FAIL; else echo OK; fi; fi")
+            try:
+                res = self._run("shell", cmd, timeout=60).strip()
+            except Exception as e:
+                out[rf.path] = str(e)
+                continue
+            out[rf.path] = None if res.endswith("OK") else "nicht gefunden" if "MISSING" in res else "Löschen fehlgeschlagen"
+        return out
 
 
 def _find_adb() -> str | None:
@@ -223,6 +258,27 @@ class IPhoneSource(Source):
         if dest.stat().st_size != rf.size and rf.size:
             raise IOError(f"Unvollständig übertragen: {rf.name}")
         os.utime(dest, (rf.mtime, rf.mtime))
+
+    def delete(self, files: list[RemoteFile]) -> dict[str, str | None]:
+        """Löschen über Apples ImageCaptureCore (wie „Digitale Bilder“).
+
+        Nicht über den direkten Dateizugriff, sonst bleiben in der Fotos-App des iPhones leere Einträge.
+        Läuft in einem eigenen Prozess, weil ImageCaptureCore eine eigene Ereignisschleife braucht.
+        """
+        if sys.platform != "darwin":
+            return {rf.path: "Löschen vom iPhone geht nur auf dem Mac" for rf in files}
+        req = {"udid": self.udid, "name": self.name,
+               "files": [{"key": rf.path, "folder": rf.path.rsplit("/", 2)[-2], "name": rf.name, "size": rf.size}
+                         for rf in files]}
+        try:
+            res = subprocess.run([sys.executable, "-m", "handy_downloader.icc_delete"], input=json.dumps(req),
+                                 capture_output=True, text=True, timeout=1800)
+            data = json.loads(res.stdout.strip().splitlines()[-1])
+        except Exception as e:
+            return {rf.path: f"iPhone-Löschen fehlgeschlagen: {e}" for rf in files}
+        if data.get("error"):
+            return {rf.path: data["error"] for rf in files}
+        return {rf.path: data["results"].get(rf.path, "nicht bearbeitet") for rf in files}
 
 
 def detect_iphones() -> list[Source]:

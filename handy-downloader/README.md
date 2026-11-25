@@ -24,10 +24,12 @@ Handy-Import/
 - **Richtiges Datum**: Aufnahmedatum aus dem Foto bzw. Video; sonst aus dem Dateinamen
   (`IMG-20250105-WA0001.jpg`), sonst Dateidatum.
 - **Keine Doppelten**: Bereits importierte Dateien werden übersprungen, auch beim nächsten Anstecken.
-  Auf dem Handy wird **nichts gelöscht**.
+  Beim Import wird auf dem Handy **nichts gelöscht** – nur, wenn du es unter „Platz schaffen“ ausdrücklich auswählst.
 - **Archiv-Ansicht mit Suche & Filtern**: nur Videos, nur Kamera-Fotos, nur Screenshots,
   nach Jahr/Monat, nach Kamera, nur hochauflösende Bilder (z. B. „ab 8 MP“), Suche im Dateinamen.
   Klick öffnet Bild/Video, „Im Finder zeigen“ springt zur Datei.
+- **Platz auf dem Handy schaffen**: Nach dem Import Bilder/Videos antippen, die vom Handy
+  gelöscht werden sollen (siehe unten).
 - Zusätzlich: **beliebigen Ordner vom Mac** importieren und einsortieren (z. B. alte Fotos).
 
 ## Installation
@@ -59,6 +61,29 @@ Standard-Zielordner ist `~/Bilder/Handy-Import` – in der Oberfläche unter „
 
 ### Optional
 - `brew install ffmpeg` → genaueres Aufnahmedatum und Vorschaubilder bei Videos.
+
+## Platz auf dem Handy schaffen
+
+Beim angeschlossenen Gerät auf **„Platz schaffen …“** klicken. Dort erscheinen **nur Dateien, die
+schon auf dem Mac gesichert sind**.
+
+1. Filtern, z. B. **🎬 Videos**, **„älter als 3 Monate“**, **„größte zuerst“**.
+2. Bilder/Videos antippen (rotes Häkchen) oder „Alle angezeigten auswählen“.
+3. Unten steht, wie viel Platz frei wird → **„… vom Handy löschen“** → bestätigen.
+
+Sicherheit:
+- Vor dem Löschen wird **jede Kopie auf dem Mac noch einmal geprüft** (Prüfsumme). Fehlt die Kopie
+  oder ist sie verändert, bleibt die Datei auf dem Handy.
+- Die Kopien auf dem Mac werden nie angefasst.
+- Auf dem Handy ist das Löschen **endgültig** (kein „Zuletzt gelöscht“).
+
+**iPhone:** Gelöscht wird über Apples offiziellen Weg (wie im Programm „Digitale Bilder“), damit die
+Fotos-App sauber bleibt. **Ist „iCloud-Fotos“ eingeschaltet, erlaubt das iPhone kein Löschen vom Mac**
+– und ein Löschen würde die Fotos auch aus iCloud und von allen Geräten entfernen. In dem Fall in
+der Fotos-App am iPhone löschen. Beim ersten Mal fragt macOS evtl. nach Zugriff auf Fotos/Kamera –
+bitte erlauben.
+
+**Android:** Wird direkt gelöscht (per `adb`), die Galerie wird benachrichtigt.
 
 ## Wie wird „Kamera-Foto“ und „Extern“ unterschieden?
 

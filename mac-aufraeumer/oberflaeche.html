@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac-Aufräumer</title>
+<style>
+:root{
+  --bg:#f5f5f7;--card:#fff;--fg:#1d1d1f;--muted:#6e6e73;--line:#e3e3e8;--accent:#0a66d8;--accent-fg:#fff;
+  --danger:#d92d20;--ok:#1a7f37;--warn:#b25e00;--hover:#f0f3f8;--chip:#eef1f5;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#161617;--card:#222224;--fg:#f2f2f4;--muted:#9a9aa0;--line:#34343a;--accent:#3b8cff;--accent-fg:#fff;
+  --danger:#ff5c4d;--ok:#3fb950;--warn:#e09b3d;--hover:#2b2d33;--chip:#2e2f34;
+}}
+*{box-sizing:border-box}
+a{color:var(--accent)}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;padding-bottom:80px}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:16px 24px;position:sticky;top:0;z-index:5}
+.hrow{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0;font-weight:650}
+.lock{font-size:12px;color:var(--ok);background:var(--chip);padding:3px 9px;border-radius:99px}
+.grow{flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:6px 12px;border-radius:8px;cursor:pointer}
+button:hover{background:var(--hover)}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+button.small{padding:3px 8px;font-size:12px}
+button:disabled{opacity:.5;cursor:default}
+input[type=text],select,input[type=number]{font:inherit;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+label.chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer;color:var(--muted)}
+nav{display:flex;gap:4px;margin-top:14px;flex-wrap:wrap}
+nav button{border:none;background:transparent;color:var(--muted);padding:7px 12px;border-radius:8px}
+nav button.on{background:var(--chip);color:var(--fg);font-weight:600}
+nav .badge{font-size:11px;background:var(--accent);color:#fff;border-radius:99px;padding:1px 6px;margin-left:4px}
+main{max-width:1200px;margin:0 auto;padding:20px 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.card h2{font-size:16px;margin:0 0 10px}
+.card h3{font-size:14px;margin:0 0 6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.stat{font-size:26px;font-weight:650}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.bar{height:10px;background:var(--chip);border-radius:99px;overflow:hidden;display:flex}
+.bar>span{display:block;height:100%}
+.stack{height:22px;border-radius:6px}
+table{width:100%;border-collapse:collapse}
+th{font-weight:600;color:var(--muted);font-size:12px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:hover td{background:var(--hover)}
+td.num,th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.name{font-weight:550;word-break:break-all}
+.path{color:var(--muted);font-size:12px;word-break:break-all}
+.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 18px;margin-top:12px}
+.legend div{display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 4px;border-radius:6px}
+.legend div:hover{background:var(--hover)}
+.legend b{margin-left:auto;font-variant-numeric:tabular-nums}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;background:var(--chip);display:block}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.tcell{border:2px solid var(--line);border-radius:10px;padding:6px;cursor:pointer;position:relative}
+.tcell.sel{border-color:var(--danger)}
+.tcell img{width:100%;height:130px;object-fit:cover;border-radius:6px;background:var(--chip);display:block}
+.tcell .ck{position:absolute;top:10px;left:10px;transform:scale(1.3)}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--chip);color:var(--muted);margin-left:4px}
+.pill.warn{color:var(--warn)}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:10px}
+.crumbs a{color:var(--accent);cursor:pointer}
+.rowlink{cursor:pointer}
+.progress{margin-top:12px}
+.progress .bar{height:6px}
+.progress .bar>span{background:var(--accent);transition:width .3s}
+.ellip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#selbar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:12px 24px;display:none;gap:12px;align-items:center;z-index:6;box-shadow:0 -4px 20px rgba(0,0,0,.08)}
+#selbar.show{display:flex}
+#toast{position:fixed;right:20px;bottom:80px;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .3s;z-index:9;max-width:420px}
+#toast.show{opacity:1}
+code{background:var(--chip);padding:2px 6px;border-radius:5px;font-size:12px;user-select:all}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.gauge{display:flex;gap:2px;height:14px;border-radius:5px;overflow:hidden;background:var(--chip)}
+.hint{background:var(--chip);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+details summary{cursor:pointer;color:var(--accent);font-size:12px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);max-width:560px;padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+.list-sm{max-height:200px;overflow:auto;font-size:12px;color:var(--muted);margin:10px 0;word-break:break-all}
+@media (max-width:700px){header,main{padding-left:12px;padding-right:12px}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>🧹 Mac-Aufräumer</h1>
+    <span class="lock" title="Es werden keine Daten ins Internet übertragen. Der Server ist nur von diesem Mac aus erreichbar.">🔒 100 % lokal</span>
+    <div class="grow"></div>
+    <div id="diskmini" class="small muted"></div>
+  </div>
+  <div class="hrow" style="margin-top:12px">
+    <input type="text" id="root" placeholder="Ordner (leer = Benutzerordner)" style="width:260px">
+    <label class="chk" title="Sucht auch in ~/Library und versteckten Ordnern nach Duplikaten (dort liegen meist App-Daten – mit Vorsicht löschen)"><input type="checkbox" id="optlib"> Duplikate auch in App-Daten</label>
+    <label class="chk" title="Vergleicht Bilder optisch (z. B. gleiche Fotos in anderer Größe). Dauert länger."><input type="checkbox" id="optsim" checked> Ähnliche Bilder suchen</label>
+    <label class="chk">Duplikate ab <input type="number" id="optmin" value="100" min="1" style="width:70px"> KB</label>
+    <button class="primary" id="btnscan">Scan starten</button>
+    <button id="btncancel" style="display:none">Abbrechen</button>
+  </div>
+  <div class="progress" id="progress" style="display:none">
+    <div class="small" id="pmsg" style="margin-bottom:5px"><span id="pphase"></span> <span class="muted ellip" id="ppath"></span></div>
+    <div class="bar"><span id="pbar" style="width:0"></span></div>
+  </div>
+  <nav id="tabs"></nav>
+</header>
+<main id="main"></main>
+
+<div id="selbar">
+  <b id="selinfo"></b>
+  <div class="grow"></div>
+  <button id="selclear">Auswahl aufheben</button>
+  <button class="danger" id="seltrash">In den Papierkorb</button>
+</div>
+<div id="toast"></div>
+<dialog id="dlg"><div id="dlgbody"></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button id="dlgno">Abbrechen</button><button class="danger" id="dlgyes">Ja</button></div></dialog>
+
+<script>
+"use strict";
+const T = new URLSearchParams(location.search).get("t") || "";
+const $ = s => document.querySelector(s);
+const COLORS = {"Bilder":"#e8590c","Videos":"#c2255c","Musik & Audio":"#9c36b5","Dokumente":"#1971c2","Archive & Installer":"#f08c00",
+  "Programme":"#2f9e44","Code & Entwicklung":"#0c8599","App-Daten & Caches":"#868e96","Versteckte Ordner":"#5c7cfa","Papierkorb":"#e03131","Sonstiges":"#adb5bd"};
+const CAT_HELP = {"Bilder":"Fotos und Grafiken in deinen Ordnern (inkl. Fotos-Mediathek)","Videos":"Filme, Bildschirmaufnahmen, iMovie-Projekte",
+  "Musik & Audio":"Musik, Sprachmemos, GarageBand/Logic-Projekte","Dokumente":"PDFs, Office, Pages, Texte","Archive & Installer":"ZIP-Dateien, DMG-/PKG-Installer, Disk-Images",
+  "Programme":"Apps im Benutzerordner (Apps in /Programme siehe Reiter „Programme“)","Code & Entwicklung":"Quellcode, Datenbanken, Bibliotheken",
+  "App-Daten & Caches":"~/Library: Einstellungen, Caches, Mail, Nachrichten, App-Container, Backups","Versteckte Ordner":"Unsichtbare Ordner wie .npm, .docker, .cache",
+  "Papierkorb":"Bereits gelöschte Dateien – erst nach dem Leeren ist der Platz frei","Sonstiges":"Alles ohne bekannte Dateiendung"};
+
+let R = null, tab = "overview", sel = new Map(), sys = null, folderPath = null;
+const fstate = {cat:"", q:"", age:"0", min:"0"};
+let dupFilter = "";
+
+async function api(path, body){
+  const o = {headers:{"X-Token":T}};
+  if(body!==undefined){o.method="POST";o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body);}
+  const r = await fetch(path,o);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function fmt(b){ if(b==null) return "–"; const u=["B","KB","MB","GB","TB"]; let i=0; while(b>=1000&&i<4){b/=1000;i++;} return (i?b.toFixed(b<10?1:0):b)+" "+u[i]; }
+function fdate(ts){ return ts? new Date(ts*1000).toLocaleDateString("de-DE",{year:"numeric",month:"short",day:"numeric"}) : "–"; }
+function ago(ts){ if(!ts) return "unbekannt"; const d=(Date.now()/1000-ts)/86400; if(d<1) return "heute"; if(d<2) return "gestern"; if(d<60) return "vor "+Math.round(d)+" Tagen"; if(d<730) return "vor "+Math.round(d/30)+" Monaten"; return "vor "+Math.round(d/365)+" Jahren"; }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function base(p){ return p.split("/").filter(Boolean).pop()||p; }
+function dir(p){ const i=p.lastIndexOf("/"); return i>0?p.slice(0,i):"/"; }
+function short(p){ const h = R&&R.home; return p; }
+function isImg(p){ return /\.(jpe?g|png|gif|heic|heif|tiff?|bmp|webp|dng|cr2|cr3|nef|arw|orf|rw2|raf|psd)$/i.test(p); }
+function thumb(p, cls){ return isImg(p)? `<img class="${cls||"thumb"}" loading="lazy" src="/api/thumb?t=${encodeURIComponent(T)}&p=${encodeURIComponent(p)}" onerror="this.style.visibility='hidden'">` : ""; }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),4000); }
+function confirmDlg(html, yes){ return new Promise(res=>{ $("#dlgbody").innerHTML=html; $("#dlgyes").textContent=yes||"Ja"; const d=$("#dlg"); d.showModal(); $("#dlgyes").onclick=()=>{d.close();res(true)}; $("#dlgno").onclick=()=>{d.close();res(false)}; }); }
+
+// ---------- Auswahl ----------
+function selToggle(p,s,on){ if(on===undefined) on=!sel.has(p); if(on) sel.set(p,s); else sel.delete(p); updSel(); }
+function updSel(){ const n=sel.size; let t=0; sel.forEach(v=>t+=v); $("#selinfo").textContent = n+" ausgewählt · "+fmt(t); $("#selbar").classList.toggle("show",n>0); }
+function ck(p,s){ return `<input type="checkbox" data-p="${esc(p)}" data-s="${s}" ${sel.has(p)?"checked":""}>`; }
+document.addEventListener("change", e=>{ const c=e.target; if(c.matches("input[type=checkbox][data-p]")){ selToggle(c.dataset.p, +c.dataset.s, c.checked); const cell=c.closest(".tcell"); if(cell) cell.classList.toggle("sel",c.checked);} });
+document.addEventListener("click", e=>{
+  const r=e.target.closest("[data-reveal]"); if(r){ e.stopPropagation(); api("/api/reveal",{path:r.dataset.reveal}); return; }
+  const o=e.target.closest("[data-open]"); if(o){ api("/api/open",{what:o.dataset.open}); return; }
+  const f=e.target.closest("[data-folder]"); if(f && !e.target.closest("input,button")){ openFolder(f.dataset.folder); return; }
+  const g=e.target.closest("[data-go]"); if(g){ if(g.dataset.cat!==undefined) fstate.cat=g.dataset.cat; if(g.dataset.q!==undefined) fstate.q=g.dataset.q; setTab(g.dataset.go); return; }
+  const tc=e.target.closest(".tcell"); if(tc && !e.target.closest("input,button")){ const c=tc.querySelector("input[data-p]"); c.checked=!c.checked; c.dispatchEvent(new Event("change",{bubbles:true})); }
+});
+$("#selclear").onclick=()=>{ sel.clear(); updSel(); render(); };
+$("#seltrash").onclick=async()=>{
+  const paths=[...sel.keys()]; let total=0; sel.forEach(v=>total+=v);
+  let warn="";
+  if(R){ const all=[...(R.dups||[]),...(R.similar||[])].filter(g=>g.files.every(f=>sel.has(f.p))); if(all.length) warn=`<p style="color:var(--danger)"><b>Achtung:</b> In ${all.length} Duplikat-Gruppe(n) sind <b>alle</b> Kopien ausgewählt – dann bleibt keine übrig!</p>`; }
+  const big=paths.filter(p=>p.endsWith(".app")).length;
+  const ok = await confirmDlg(`<h3>${paths.length} Objekt(e) in den Papierkorb legen?</h3><p>Das gibt etwa <b>${fmt(total)}</b> frei, sobald du den Papierkorb leerst. Bis dahin kannst du alles im Finder mit „Zurücklegen“ wiederherstellen.</p>${big?`<p class="muted">Bei Programmen ggf. vorher die App beenden. Für Apps in /Programme fragt macOS evtl. nach deinem Passwort.</p>`:""}${warn}<div class="list-sm">${paths.slice(0,60).map(esc).join("<br>")}${paths.length>60?"<br>…":""}</div>`, "In den Papierkorb");
+  if(!ok) return;
+  $("#seltrash").disabled=true;
+  try{
+    const res=await api("/api/trash",{paths});
+    res.ok.forEach(p=>sel.delete(p));
+    if(res.failed.length) await confirmDlg(`<h3>${res.failed.length} Objekt(e) konnten nicht verschoben werden</h3><div class="list-sm">${res.failed.map(f=>esc(f.p)+" – "+esc(f.err)).join("<br>")}</div><p class="muted small">Tipp: Erlaube dem Terminal unter Systemeinstellungen → Datenschutz & Sicherheit → Automation den Zugriff auf „Finder“.</p>`,"OK");
+    toast(`${res.ok.length} Objekt(e) im Papierkorb · ${fmt(res.freed)}`);
+    await loadResults(); updSel(); refreshDisk();
+  }catch(err){ toast("Fehler: "+err.message); }
+  $("#seltrash").disabled=false;
+};
+
+// ---------- Tabs ----------
+const TABS=[["overview","Übersicht"],["files","Größte Dateien"],["folders","Ordner"],["apps","Programme"],["dups","Duplikate"],["similar","Ähnliche Bilder"],["tips","Aufräum-Tipps"],["system","Leistung"]];
+function renderTabs(){
+  const badge={dups:R&&R.dups.length,similar:R&&R.similar.length,tips:R&&R.tips.filter(t=>t.s>0).length};
+  $("#tabs").innerHTML=TABS.map(([k,l])=>`<button data-tab="${k}" class="${tab===k?"on":""}">${l}${badge[k]?`<span class="badge">${badge[k]}</span>`:""}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+}
+function setTab(k){ tab=k; renderTabs(); render(); window.scrollTo(0,0); }
+function render(){
+  const m=$("#main");
+  if(tab==="system") return renderSystem();
+  if(!R){ m.innerHTML=`<div class="card"><h2>Willkommen!</h2><p>Klicke oben auf <b>„Scan starten“</b>. Der Mac-Aufräumer durchsucht deinen Benutzerordner und zeigt dir anschließend:</p>
+    <ul><li>wofür dein Speicher draufgeht (Bilder, Videos, Dokumente, App-Daten …)</li><li>die größten Dateien, Ordner und Programme</li><li>doppelte Dateien und ähnliche Fotos</li><li>konkrete Aufräum-Tipps (Caches, Downloads, Installer, Backups …)</li></ul>
+    <p class="muted">🔒 Alles bleibt auf deinem Mac. Nichts wird hochgeladen. Gelöschtes landet im Papierkorb und lässt sich wiederherstellen.</p>
+    <p class="muted small">macOS fragt beim ersten Scan evtl., ob das Terminal auf Schreibtisch, Dokumente, Downloads usw. zugreifen darf – bitte erlauben. Für einen vollständigen Scan: Systemeinstellungen → Datenschutz & Sicherheit → Festplattenvollzugriff → Terminal aktivieren.</p></div>
+    <p class="muted small">Den Reiter <a href="#" data-go="system">„Leistung“</a> kannst du auch ohne Scan ansehen.</p>`; return; }
+  ({overview:renderOverview,files:renderFiles,folders:renderFolders,apps:renderApps,dups:renderDups,similar:renderSimilar,tips:renderTips})[tab]();
+}
+
+// ---------- Übersicht ----------
+function renderOverview(){
+  const d=sys&&sys.disk, cats=R.categories, tot=cats.reduce((a,c)=>a+c.size,0)||1;
+  const dupW=R.dups.reduce((a,g)=>a+g.waste,0), simW=R.similar.reduce((a,g)=>a+g.waste,0);
+  const tip=id=>R.tips.find(t=>t.id===id);
+  const quick=[["Doppelte Dateien",dupW,"dups"],["Ähnliche Bilder",simW,"similar"],["Papierkorb",(tip("trash")||{}).s,"tips"],["Downloads",(tip("downloads")||{}).s,"tips"],
+    ["App-Caches",(tip("caches")||{}).s,"tips"],["Installer (.dmg/.pkg)",(tip("installers")||{}).s,"tips"]].filter(q=>q[1]>0);
+  const root=folderView0();
+  let h=`<div class="grid">`;
+  if(d){ const pct=d.used/d.total*100; h+=`<div class="card"><h3>Festplatte</h3><div class="stat">${fmt(d.free)} frei</div><div class="muted small" style="margin-bottom:8px">von ${fmt(d.total)} · ${pct.toFixed(0)} % belegt</div><div class="bar"><span style="width:${pct}%;background:${pct>90?"var(--danger)":pct>80?"var(--warn)":"var(--accent)"}"></span></div>${pct>85?`<p class="small" style="color:var(--warn)">⚠️ Wenig freier Speicher bremst den Mac (Auslagerung, Updates). Ziel: mind. 15–20 % frei.</p>`:""}</div>`; }
+  h+=`<div class="card"><h3>Gescannt</h3><div class="stat">${fmt(R.total)}</div><div class="muted small">${R.files.toLocaleString("de-DE")} Dateien in ${esc(R.root)} · ${R.duration} s</div>${R.perm_errors?`<p class="small" style="color:var(--warn)">${R.perm_errors} Ordner ohne Zugriff. <details><summary>Details</summary>${R.perm_paths.map(esc).join("<br>")}<br>→ Festplattenvollzugriff für Terminal aktivieren und neu scannen.</details></p>`:""}</div>`;
+  h+=`<div class="card"><h3>Schnell freizumachen</h3>${quick.length?quick.map(q=>`<div class="rowlink" data-go="${q[2]}" style="display:flex;padding:3px 0"><span>${q[0]}</span><b style="margin-left:auto">${fmt(q[1])}</b></div>`).join(""):`<p class="muted">Nichts Auffälliges gefunden 👍</p>`}</div></div>`;
+  h+=`<div class="card"><h2>Wofür wird der Platz verwendet?</h2><div class="bar stack">${cats.map(c=>`<span title="${esc(c.name)}: ${fmt(c.size)}" style="width:${c.size/tot*100}%;background:${COLORS[c.name]||"#999"}"></span>`).join("")}</div>
+    <div class="legend">${cats.map(c=>`<div data-go="files" data-cat="${esc(c.name)}" title="${esc(CAT_HELP[c.name]||"")}"><span class="dot" style="background:${COLORS[c.name]||"#999"}"></span>${esc(c.name)} <span class="muted small">${c.count.toLocaleString("de-DE")}</span><b>${fmt(c.size)}</b></div>`).join("")}</div>
+    <p class="muted small" style="margin-bottom:0">Klicke auf eine Kategorie, um die größten Dateien darin zu sehen. Fahre mit der Maus darüber für eine Erklärung.</p></div>`;
+  h+=`<div class="grid"><div class="card"><h2>Größte Ordner</h2>${root.slice(0,10).map(k=>`<div class="rowlink" data-folder="${esc(k.p)}" style="padding:4px 0"><div style="display:flex"><span class="ellip">📁 ${esc(base(k.p))}</span><b style="margin-left:auto">${fmt(k.s)}</b></div><div class="bar" style="height:4px;margin-top:3px"><span style="width:${k.s/(root[0].s||1)*100}%;background:var(--accent)"></span></div></div>`).join("")}</div>
+    <div class="card"><h2>Größte Programme</h2>${R.apps.slice(0,10).map(a=>`<div class="rowlink" data-go="apps" style="display:flex;padding:4px 0"><span class="ellip">${esc(a.name)}</span><b style="margin-left:auto">${fmt(a.s+a.rs)}</b></div>`).join("")||`<p class="muted">Keine gefunden.</p>`}</div></div>`;
+  $("#main").innerHTML=h;
+}
+let rootKids=[];
+function folderView0(){ return rootKids; }
+
+// ---------- Größte Dateien ----------
+function renderFiles(){
+  const cats=[...new Set(R.top_files.map(f=>f.c))].sort();
+  const now=Date.now()/1000, age=+fstate.age*365*86400, min=+fstate.min*1e6, q=fstate.q.toLowerCase();
+  const list=R.top_files.filter(f=>(!fstate.cat||f.c===fstate.cat)&&(!q||f.p.toLowerCase().includes(q))&&(!age||now-f.m>age)&&f.s>=min);
+  const sum=list.reduce((a,f)=>a+f.s,0);
+  let h=`<div class="card"><div class="toolbar">
+    <select id="fcat"><option value="">Alle Kategorien</option>${cats.map(c=>`<option ${c===fstate.cat?"selected":""}>${esc(c)}</option>`).join("")}</select>
+    <input type="text" id="fq" placeholder="Suchen (Name/Pfad) …" value="${esc(fstate.q)}">
+    <select id="fage"><option value="0">beliebiges Alter</option><option value="1" ${fstate.age==="1"?"selected":""}>älter als 1 Jahr</option><option value="2" ${fstate.age==="2"?"selected":""}>älter als 2 Jahre</option><option value="5" ${fstate.age==="5"?"selected":""}>älter als 5 Jahre</option></select>
+    <select id="fmin"><option value="0">jede Größe</option>${[100,500,1000,5000].map(v=>`<option value="${v}" ${fstate.min==v?"selected":""}>ab ${fmt(v*1e6)}</option>`).join("")}</select>
+    <span class="muted small">${list.length} Einträge · ${fmt(sum)}</span></div>
+    <p class="muted small" style="margin-top:0">Die ${R.top_files.length} größten Dateien und Pakete (z. B. Apps, Fotos-Mediathek) im gescannten Bereich. Datum = zuletzt geändert.</p>
+    ${fileTable(list.slice(0,400))}</div>`;
+  $("#main").innerHTML=h;
+  $("#fcat").onchange=e=>{fstate.cat=e.target.value;renderFiles();};
+  $("#fage").onchange=e=>{fstate.age=e.target.value;renderFiles();};
+  $("#fmin").onchange=e=>{fstate.min=e.target.value;renderFiles();};
+  $("#fq").oninput=e=>{fstate.q=e.target.value;clearTimeout(window._fq);window._fq=setTimeout(()=>{renderFiles();const i=$("#fq");i.focus();i.setSelectionRange(i.value.length,i.value.length);},250);};
+}
+function fileTable(list){
+  if(!list.length) return `<div class="empty">Keine Einträge.</div>`;
+  return `<table><tr><th style="width:28px"></th><th style="width:52px" class="hide-sm"></th><th>Datei</th><th class="hide-sm">Kategorie</th><th class="num">Größe</th><th class="num hide-sm">Geändert</th><th></th></tr>
+  ${list.map(f=>`<tr><td>${ck(f.p,f.s)}</td><td class="hide-sm">${thumb(f.p)}</td><td><div class="name">${f.pkg?"📦 ":""}${esc(base(f.p))}</div><div class="path">${esc(dir(f.p))}</div></td>
+  <td class="hide-sm"><span class="dot" style="background:${COLORS[f.c]||"#999"}"></span>${esc(f.c)}</td><td class="num"><b>${fmt(f.s)}</b></td><td class="num hide-sm muted">${fdate(f.m)}</td>
+  <td class="num"><button class="small" data-reveal="${esc(f.p)}" title="Im Finder zeigen">Finder</button></td></tr>`).join("")}</table>`;
+}
+
+// ---------- Ordner ----------
+async function openFolder(p){ folderPath=p; tab="folders"; renderTabs(); await renderFolders(); window.scrollTo(0,0); }
+async function renderFolders(){
+  const v=await api("/api/folder?p="+encodeURIComponent(folderPath||""));
+  if(v.missing){ $("#main").innerHTML=`<div class="card"><p>Für diesen Ordner liegen keine Detaildaten vor (zu tief verschachtelt). <a href="#" data-folder="${esc(dir(v.path))}">Zurück</a> · <button class="small" data-reveal="${esc(v.path)}">Im Finder zeigen</button></p></div>`; return; }
+  folderPath=v.path;
+  const parts=[]; let cur=v.path; while(true){ parts.unshift(cur); if(cur===v.root||cur==="/"||cur.length<v.root.length) break; cur=dir(cur); }
+  const max=v.children.length?v.children[0].s:1;
+  let h=`<div class="card"><div class="crumbs">${parts.map((p,i)=>i<parts.length-1?`<a data-folder="${esc(p)}">${esc(i===0?p:base(p))}</a> ›`:`<b>${esc(i===0?p:base(p))}</b>`).join(" ")}<div class="grow"></div><b>${fmt(v.size)}</b> <button class="small" data-reveal="${esc(v.path)}">Finder</button></div>
+  <table><tr><th style="width:28px"></th><th>Name</th><th style="width:30%" class="hide-sm"></th><th class="num">Größe</th><th class="num hide-sm">Anteil</th><th></th></tr>
+  ${v.children.map(k=>`<tr class="rowlink" ${k.pkg||k.deep?"":`data-folder="${esc(k.p)}"`}><td>${ck(k.p,k.s)}</td><td><span class="name">${k.pkg?"📦":"📁"} ${esc(base(k.p))}</span>${!k.pkg&&!k.deep?` <span class="muted">›</span>`:""}</td>
+  <td class="hide-sm"><div class="bar" style="height:6px"><span style="width:${k.s/max*100}%;background:var(--accent)"></span></div></td><td class="num"><b>${fmt(k.s)}</b></td><td class="num hide-sm muted">${(k.s/(v.size||1)*100).toFixed(1)} %</td>
+  <td class="num"><button class="small" data-reveal="${esc(k.p)}">Finder</button></td></tr>`).join("")}
+  ${v.direct.n?`<tr><td></td><td class="muted">📄 ${v.direct.n.toLocaleString("de-DE")} Dateien direkt in diesem Ordner</td><td class="hide-sm"></td><td class="num">${fmt(v.direct.s)}</td><td class="num hide-sm muted">${(v.direct.s/(v.size||1)*100).toFixed(1)} %</td><td></td></tr>`:""}
+  </table>${v.files.length?`<h3 style="margin-top:18px">Große Dateien in diesem Ordner</h3>${fileTable(v.files)}`:""}
+  ${v.path.includes("/Library")?`<p class="small" style="color:var(--warn)">⚠️ Du bist in einem Library-Ordner. Hier liegen Programm-Daten. Lösche nur, was du sicher zuordnen kannst (z. B. Caches oder Reste deinstallierter Apps).</p>`:""}</div>`;
+  $("#main").innerHTML=h;
+}
+
+// ---------- Programme ----------
+let appSort="size";
+function renderApps(){
+  const apps=[...R.apps]; const now=Date.now()/1000;
+  if(appSort==="last") apps.sort((a,b)=>(a.last||0)-(b.last||0)); else if(appSort==="name") apps.sort((a,b)=>a.name.localeCompare(b.name));
+  const unused=R.apps.filter(a=>a.last&&now-a.last>180*86400), unusedS=unused.reduce((s,a)=>s+a.s+a.rs,0);
+  let h=`<div class="card"><div class="toolbar"><b>${R.apps.length} Programme</b> · ${fmt(R.apps.reduce((s,a)=>s+a.s,0))} + ${fmt(R.apps.reduce((s,a)=>s+a.rs,0))} App-Daten
+  <div class="grow"></div>Sortieren: <select id="asort"><option value="size">Größe</option><option value="last" ${appSort==="last"?"selected":""}>Am längsten nicht benutzt</option><option value="name" ${appSort==="name"?"selected":""}>Name</option></select></div>
+  ${unused.length?`<div class="hint">💡 ${unused.length} Programme wurden seit über 6 Monaten nicht geöffnet (${fmt(unusedS)}). Sortiere nach „nicht benutzt“, um sie zu sehen.</div>`:""}
+  <p class="muted small" style="margin-top:0">„App-Daten“ = zugehörige Dateien in ~/Library (Einstellungen, Caches, Container). Beim Löschen einer App bleiben die sonst liegen – klapp „Daten“ auf, um sie mit auszuwählen. App-Store-Apps kannst du jederzeit neu laden.</p>
+  <table><tr><th style="width:28px"></th><th>Programm</th><th class="num">App</th><th class="num">App-Daten</th><th class="num hide-sm">Zuletzt geöffnet</th><th></th></tr>
+  ${apps.map(a=>`<tr><td>${ck(a.p,a.s)}</td><td><div class="name">${esc(a.name)} <span class="muted small">${esc(a.version)}</span>${a.store?`<span class="pill">App Store</span>`:""}${a.apple?`<span class="pill">Apple</span>`:""}</div><div class="path">${esc(a.p)}</div>
+  ${a.related.length?`<details><summary>Daten (${a.related.length}) · ${fmt(a.rs)}</summary>${a.related.map(r=>`<div style="display:flex;gap:6px;align-items:center;margin:3px 0">${ck(r.p,r.s)}<span class="path grow">${esc(r.p)}</span><b class="small">${fmt(r.s)}</b><button class="small" data-reveal="${esc(r.p)}">Finder</button></div>`).join("")}</details>`:""}</td>
+  <td class="num"><b>${fmt(a.s)}</b></td><td class="num">${a.rs?fmt(a.rs):"–"}</td><td class="num hide-sm ${a.last&&now-a.last>180*86400?"":"muted"}" style="${a.last&&now-a.last>180*86400?"color:var(--warn)":""}">${R.apps.some(x=>x.last)?ago(a.last):"–"}</td>
+  <td class="num"><button class="small" data-reveal="${esc(a.p)}">Finder</button></td></tr>`).join("")}</table></div>`;
+  $("#main").innerHTML=h;
+  $("#asort").onchange=e=>{appSort=e.target.value;renderApps();};
+}
+
+// ---------- Duplikate ----------
+function renderDups(){
+  const groups=R.dups.filter(g=>!dupFilter||g.c===dupFilter);
+  const cats=[...new Set(R.dups.map(g=>g.c))].sort();
+  const waste=groups.reduce((a,g)=>a+g.waste,0);
+  let h=`<div class="card"><div class="toolbar"><b>${groups.length} Gruppen doppelter Dateien</b> · <span>${fmt(waste)} könnten frei werden</span><div class="grow"></div>
+    <select id="dcat"><option value="">Alle Arten</option>${cats.map(c=>`<option ${c===dupFilter?"selected":""}>${esc(c)}</option>`).join("")}</select>
+    <button id="dauto" title="Behält in jeder Gruppe die älteste Datei (das Original) und wählt die übrigen Kopien aus">Kopien auswählen (Original behalten)</button></div>
+    <p class="muted small" style="margin-top:0">Diese Dateien sind <b>byte-genau identisch</b> (Prüfsumme verglichen). Ausgenommen: Fotos-Mediathek, Papierkorb${R.root_is_home&&!$("#optlib").checked?", ~/Library und versteckte Ordner":""}.</p>
+    ${groups.length?"":`<div class="empty">Keine doppelten Dateien gefunden 🎉</div>`}</div>`;
+  h+=groups.slice(0,300).map(g=>`<div class="card"><div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">${thumb(g.files[0].p)}<div><b>${esc(base(g.files[0].p))}</b><div class="muted small">${g.files.length}× à ${fmt(g.size)} · <span class="dot" style="background:${COLORS[g.c]||"#999"}"></span>${esc(g.c)}</div></div><div class="grow"></div><b>${fmt(g.waste)} doppelt</b></div>
+    <table>${g.files.map((f,i)=>`<tr><td style="width:28px">${ck(f.p,g.size)}</td><td><div class="path" style="color:var(--fg)">${esc(f.p)}</div></td><td class="num small muted">${fdate(f.m)}${i===0?` <span class="pill">ältestes</span>`:""}</td><td class="num"><button class="small" data-reveal="${esc(f.p)}">Finder</button></td></tr>`).join("")}</table></div>`).join("");
+  if(groups.length>300) h+=`<p class="muted">… und ${groups.length-300} weitere Gruppen (kleiner).</p>`;
+  $("#main").innerHTML=h;
+  $("#dcat").onchange=e=>{dupFilter=e.target.value;renderDups();};
+  $("#dauto").onclick=()=>{ groups.forEach(g=>g.files.forEach((f,i)=>{ if(i>0) sel.set(f.p,g.size); else sel.delete(f.p); })); updSel(); renderDups(); toast("Kopien ausgewählt – das jeweils älteste Original bleibt."); };
+}
+
+// ---------- Ähnliche Bilder ----------
+function renderSimilar(){
+  if(!R.similar_enabled){ $("#main").innerHTML=`<div class="card empty">Die Suche nach ähnlichen Bildern war beim letzten Scan ausgeschaltet. Setze oben den Haken „Ähnliche Bilder suchen“ und scanne erneut.</div>`; return; }
+  const waste=R.similar.reduce((a,g)=>a+g.waste,0);
+  let h=`<div class="card"><div class="toolbar"><b>${R.similar.length} Gruppen ähnlicher Bilder</b> · bis zu ${fmt(waste)}<div class="grow"></div><button id="sauto" title="Behält jeweils das größte (beste) Bild">Kleinere Versionen auswählen</button></div>
+  <p class="muted small" style="margin-top:0">Optisch sehr ähnliche Fotos – z. B. dasselbe Bild in anderer Größe/Format, bearbeitete Kopien oder Serienaufnahmen. <b>Bitte vor dem Löschen ansehen</b> – klicke auf ein Bild, um es auszuwählen. Bilder in der Fotos-Mediathek findet die Fotos-App selbst (Album „Duplikate“).</p>
+  ${R.similar.length?"":`<div class="empty">Keine ähnlichen Bilder gefunden.</div>`}</div>`;
+  h+=R.similar.slice(0,200).map(g=>`<div class="card"><div class="muted small" style="margin-bottom:8px">${g.files.length} Bilder · ${fmt(g.waste)} zusätzlich</div><div class="tgrid">${g.files.map((f,i)=>`<div class="tcell ${sel.has(f.p)?"sel":""}"><input class="ck" type="checkbox" data-p="${esc(f.p)}" data-s="${f.s}" ${sel.has(f.p)?"checked":""}>${thumb(f.p,"")}<div class="small ellip" title="${esc(f.p)}" style="margin-top:4px">${esc(base(f.p))}</div><div class="small muted" style="display:flex">${fmt(f.s)}${i===0?`<span class="pill">größtes</span>`:""}<span class="grow"></span><a class="small" style="color:var(--accent);cursor:pointer" data-reveal="${esc(f.p)}">Finder</a></div><div class="path ellip" title="${esc(dir(f.p))}">${esc(dir(f.p))}</div></div>`).join("")}</div></div>`).join("");
+  $("#main").innerHTML=h;
+  $("#sauto").onclick=()=>{ R.similar.forEach(g=>g.files.forEach((f,i)=>{ if(i>0) sel.set(f.p,f.s); else sel.delete(f.p); })); updSel(); renderSimilar(); toast("Kleinere Versionen ausgewählt – bitte kurz durchsehen!"); };
+}
+
+// ---------- Tipps ----------
+function renderTips(){
+  let h=`<div class="hint small">Hier findest du die typischen Platzfresser auf einem Mac – mit Erklärung, ob und wie man sie gefahrlos los wird. Befehle (grau hinterlegt) kannst du ins Terminal kopieren.</div>`;
+  h+=R.tips.map(t=>`<div class="card"><div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><h2 style="margin:0">${esc(t.title)}</h2><div class="grow"></div>${t.s?`<b class="stat" style="font-size:20px">${fmt(t.s)}</b>`:""}</div>
+    <p style="margin:8px 0">${esc(t.text)}</p>${t.cmd?`<p><code>${esc(t.cmd)}</code></p>`:""}
+    ${t.p?`<button class="small" data-reveal="${esc(t.p)}">Im Finder zeigen</button> `:""}
+    ${t.kind==="trash"&&t.s?`<button class="small danger" id="emptytrash">Papierkorb leeren</button>`:""}
+    ${t.open?`<button class="small" data-open="${t.open}">Einstellungen öffnen</button>`:""}
+    ${t.items&&t.items.length?`<table style="margin-top:10px">${t.items.map(i=>`<tr><td style="width:28px">${ck(i.p,i.s)}</td><td><div class="name">${esc(base(i.p))}</div><div class="path">${esc(dir(i.p))}</div></td><td class="num"><b>${fmt(i.s)}</b></td><td class="num"><button class="small" data-reveal="${esc(i.p)}">Finder</button></td></tr>`).join("")}</table>`:""}</div>`).join("");
+  $("#main").innerHTML=h;
+  const et=$("#emptytrash"); if(et) et.onclick=async()=>{ if(await confirmDlg(`<h3>Papierkorb endgültig leeren?</h3><p>Die Dateien im Papierkorb werden <b>unwiderruflich</b> gelöscht.</p>`,"Endgültig leeren")){ await api("/api/empty-trash",{}); toast("Papierkorb geleert."); refreshDisk(); } };
+}
+
+// ---------- Leistung ----------
+async function renderSystem(){
+  const m=$("#main"); if(!sys) m.innerHTML=`<div class="card empty">Lade Systeminfos …</div>`;
+  sys=await api("/api/system"); if(tab!=="system") return;
+  const s=sys, mt=s.mem_total, mem=s.mem;
+  let h=`<div class="toolbar"><button data-open="activity">Aktivitätsanzeige öffnen</button><button data-open="loginitems">Anmeldeobjekte öffnen</button><button data-open="storage">Speicher-Einstellungen</button><div class="grow"></div><button id="sysref">Aktualisieren</button></div><div class="grid">`;
+  if(mem&&mt){ const app=mem.active+mem.wired+mem.compressed; const parts=[["Fest belegt (System)",mem.wired,"#e03131"],["Aktiv",mem.active,"#f08c00"],["Komprimiert",mem.compressed,"#9c36b5"],["Inaktiv/Cache",mem.inactive,"#74c0fc"]];
+    h+=`<div class="card"><h3>Arbeitsspeicher (RAM)</h3><div class="stat">${fmt(app)} <span class="muted" style="font-size:14px">von ${fmt(mt)} genutzt</span></div><div class="gauge" style="margin:8px 0">${parts.map(p=>`<span title="${p[0]}: ${fmt(p[1])}" style="width:${p[1]/mt*100}%;background:${p[2]}"></span>`).join("")}</div>
+    <div class="small muted">${parts.map(p=>`<span class="dot" style="background:${p[2]}"></span>${p[0]} ${fmt(p[1])}`).join(" &nbsp; ")}</div>
+    ${s.mem_free_pct!=null?`<p class="small">Speicherdruck: <b style="color:${s.mem_free_pct<20?"var(--danger)":s.mem_free_pct<40?"var(--warn)":"var(--ok)"}">${s.mem_free_pct<20?"hoch":s.mem_free_pct<40?"mittel":"niedrig"}</b> (${s.mem_free_pct} % frei)</p>`:""}
+    ${s.swap_used!=null?`<p class="small">Ausgelagert (Swap): <b>${fmt(s.swap_used)}</b>${s.swap_used>2e9?` – <span style="color:var(--warn)">viel! Schließe ungenutzte Programme/Tabs.</span>`:""}</p>`:""}</div>`; }
+  else if(mt) h+=`<div class="card"><h3>Arbeitsspeicher</h3><div class="stat">${fmt(mt)}</div></div>`;
+  if(s.load) h+=`<div class="card"><h3>Prozessor</h3><div class="stat">${(s.load[0]/(s.cpus||1)*100).toFixed(0)} %</div><div class="small muted">Auslastung (1 Min.) · ${s.cpus} Kerne · ${s.nproc} Prozesse</div>${s.uptime?`<p class="small">Läuft seit <b>${Math.floor(s.uptime/86400)} Tagen</b>${s.uptime>14*86400?` – <span style="color:var(--warn)">ein Neustart kann Speicher freigeben und den Mac spürbar beschleunigen.</span>`:""}</p>`:""}${s.os?`<p class="small muted">macOS ${esc(s.os)}</p>`:""}</div>`;
+  if(s.disk){ const pct=s.disk.used/s.disk.total*100; h+=`<div class="card"><h3>Speicherplatz</h3><div class="stat">${fmt(s.disk.free)} frei</div><div class="bar" style="margin:8px 0"><span style="width:${pct}%;background:${pct>90?"var(--danger)":pct>80?"var(--warn)":"var(--accent)"}"></span></div><div class="small muted">${pct.toFixed(0)} % von ${fmt(s.disk.total)} belegt</div></div>`; }
+  h+=`</div><div class="grid"><div class="card"><h2>Größte RAM-Verbraucher</h2>${procTable(s.by_mem,"rss")}</div><div class="card"><h2>Größte CPU-Verbraucher</h2>${procTable(s.by_cpu,"cpu")}</div></div>`;
+  h+=`<div class="card"><h2>Hintergrund- & Startobjekte (${s.agents.length})</h2><p class="muted small" style="margin-top:0">Programme, die automatisch im Hintergrund starten. Viele davon (z. B. Updater) kosten Leistung beim Start. Ein- und ausschalten am sichersten unter <a href="#" data-open="loginitems">Systemeinstellungen → Allgemein → Anmeldeobjekte</a>. Einträge von Apps, die du gelöscht hast, sind Reste und können in den Papierkorb (danach neu starten).</p>
+  ${s.agents.length?`<table><tr><th style="width:28px"></th><th>Name</th><th class="hide-sm">Art</th><th></th></tr>${s.agents.map(a=>`<tr><td>${a.scope==="Benutzer"?ck(a.p,0):""}</td><td><div class="name">${esc(a.label)}${a.disabled?`<span class="pill">deaktiviert</span>`:""}${a.label.startsWith("com.apple.")?`<span class="pill">Apple</span>`:""}</div><div class="path">${esc(a.prog||a.p)}</div></td><td class="hide-sm muted small">${esc(a.scope)}</td><td class="num"><button class="small" data-reveal="${esc(a.p)}">Finder</button></td></tr>`).join("")}</table>`:`<div class="empty">Keine gefunden.</div>`}</div>`;
+  h+=`<div class="card"><h2>Tipps für mehr Tempo</h2><ul>
+   <li><b>Mindestens 15–20 % Speicher frei lassen</b> – macOS braucht Platz für Auslagerung, Caches und Updates.</li>
+   <li><b>Regelmäßig neu starten</b> (alle 1–2 Wochen) – räumt Arbeitsspeicher und hängende Prozesse auf.</li>
+   <li><b>Browser-Tabs reduzieren</b> – jeder Tab ist ein eigener Prozess und kann hunderte MB belegen.</li>
+   <li><b>Anmeldeobjekte ausmisten</b> – weniger Programme beim Start = schnellerer Start, mehr freier RAM.</li>
+   <li><b>macOS & Apps aktuell halten</b> (Softwareupdate) – Updates bringen oft Leistungsverbesserungen.</li>
+   <li><b>Spotlight</b> indiziert nach großen Änderungen eine Weile – das ist normal und geht vorbei.</li>
+   <li>Sehr hoher Swap/Speicherdruck trotz wenig offener Apps → in der Aktivitätsanzeige nach „Speicher“ sortieren.</li></ul></div>`;
+  m.innerHTML=h; $("#sysref").onclick=()=>renderSystem(); updDiskMini();
+}
+function procTable(list,key){ const max=list.length?list[0][key]:1;
+  return `<table>${list.map(a=>`<tr><td><div class="name">${esc(a.app)}${a.n>1?` <span class="muted small">(${a.n} Prozesse)</span>`:""}</div><div class="bar" style="height:4px;margin-top:3px"><span style="width:${a[key]/(max||1)*100}%;background:var(--accent)"></span></div></td><td class="num"><b>${key==="rss"?fmt(a.rss):a.cpu.toFixed(1)+" %"}</b></td><td class="num muted small hide-sm">${key==="rss"?a.cpu.toFixed(1)+" %":fmt(a.rss)}</td></tr>`).join("")}</table>`; }
+
+// ---------- Scan-Steuerung ----------
+async function refreshDisk(){ try{ sys=await api("/api/system"); updDiskMini(); }catch(e){} }
+function updDiskMini(){ if(sys&&sys.disk) $("#diskmini").innerHTML=`Festplatte: <b>${fmt(sys.disk.free)}</b> frei von ${fmt(sys.disk.total)}`; }
+async function loadResults(){
+  const r=await api("/api/results"); if(!r||!r.root) return;
+  R=r; const f=await api("/api/folder?p="+encodeURIComponent(r.root)); rootKids=f.children||[];
+  if(!folderPath) folderPath=r.root; renderTabs(); render();
+}
+const PHASES={scan:"Durchsuche Dateien …",apps:"Programme …",dups:"Prüfe Duplikate …",similar:"Vergleiche Bilder …",tips:"Suche Tipps …"};
+async function poll(){
+  let s; try{ s=await api("/api/status"); }catch(e){ $("#pphase").textContent="Verbindung zum Mac-Aufräumer verloren – läuft das Terminal-Fenster noch?"; return; }
+  const running=s.running;
+  $("#progress").style.display=running?"block":"none"; $("#btncancel").style.display=running?"":"none"; $("#btnscan").disabled=running;
+  if(running){ $("#pphase").innerHTML=`<b>${PHASES[s.phase]||""}</b> ${s.files.toLocaleString("de-DE")} Dateien · ${fmt(s.bytes)}`; $("#ppath").textContent=s.message||"";
+    $("#pbar").style.width=(s.progress==null?100:s.progress*100)+"%"; $("#pbar").style.opacity=s.progress==null?.35:1; setTimeout(poll,700); }
+  else { if(poll.wasRunning){ if(s.phase==="done"){ await loadResults(); toast(s.message);} else toast(s.message); } }
+  poll.wasRunning=running;
+}
+$("#btnscan").onclick=async()=>{ sel.clear(); updSel(); folderPath=null;
+  await api("/api/scan",{root:$("#root").value.trim(),include_library:$("#optlib").checked,similar:$("#optsim").checked,min_dup_kb:+$("#optmin").value||100});
+  poll.wasRunning=true; setTimeout(poll,200); };
+$("#btncancel").onclick=()=>api("/api/cancel",{});
+
+renderTabs(); render(); refreshDisk(); loadResults().then(poll);
+</script>
+</body>
+</html>
